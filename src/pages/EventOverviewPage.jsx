@@ -183,6 +183,9 @@ export default function EventOverviewPage({ user = null }) {
         <button style={s.eventPageBtn} onClick={() => navigate(`/public/events/${event.id}`)}>
           Event Page ↗
         </button>
+        <button style={s.adminBtn} onClick={() => navigate(`/events/${event.id}/admin`)}>
+          Admin ↗
+        </button>
       </header>
 
       <main style={s.main}>
@@ -207,6 +210,7 @@ export default function EventOverviewPage({ user = null }) {
           </div>
           <div style={s.heroActions}>
             <Btn onClick={() => setEditing(v=>!v)}>{editing ? 'Close' : 'Edit Event'}</Btn>
+            <Btn ghost onClick={() => navigate(`/events/${event.id}/admin`)}>Admin</Btn>
           </div>
         </div>
 
@@ -658,6 +662,7 @@ const s = {
   logo:        { color:'#a78bfa', fontSize:20 },
   brand:       { fontSize:16, fontWeight:700, letterSpacing:'-.3px' },
   eventPageBtn:{ background:'rgba(255,255,255,0.07)', color:'#ccc', border:'1px solid rgba(255,255,255,0.08)', borderRadius:999, padding:'8px 16px', fontWeight:600, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  adminBtn:    { background:'rgba(167,139,250,0.16)', color:'#ddd6fe', border:'1px solid rgba(167,139,250,0.24)', borderRadius:999, padding:'8px 16px', fontWeight:700, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif", marginLeft:10 },
 
   /* layout */
   main:     { maxWidth:1160, margin:'0 auto', padding:'28px 24px 80px' },

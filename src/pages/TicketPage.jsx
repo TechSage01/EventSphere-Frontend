@@ -11,7 +11,6 @@ export default function TicketPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [verifying, setVerifying] = useState(false)
-  const [verified, setVerified] = useState(false)
 
   useEffect(() => {
     async function loadTicket() {
@@ -38,7 +37,7 @@ export default function TicketPage() {
 
   useEffect(() => {
     const reference = searchParams.get('reference')
-    if (!ticket || !reference || ticket.status === 'confirmed' || verified) return
+    if (!ticket || !reference || ticket.status === 'confirmed') return
 
     async function verifyPayment() {
       setVerifying(true)
@@ -55,7 +54,10 @@ export default function TicketPage() {
 
         setTicket(data.ticket)
         setEvent(data.event)
-        setVerified(true)
+        navigate(
+          `/thank-you?type=ticket&back=${encodeURIComponent(`/public/events/${data.ticket.eventId}`)}&title=${encodeURIComponent('Thank you for your payment')}&subtitle=${encodeURIComponent('Your ticket is confirmed. You can reserve another one for a friend next.')}`,
+          { replace: true }
+        )
       } catch (err) {
         setError(err.message)
       } finally {
@@ -64,7 +66,7 @@ export default function TicketPage() {
     }
 
     verifyPayment()
-  }, [ticket, ticketId, searchParams, verified])
+  }, [navigate, ticket, ticketId, searchParams])
 
   if (loading) return <Shell message="Loading ticket..." />
   if (error && !ticket) return <Shell message={error} actionLabel="Back to Events" onAction={() => navigate('/events')} />

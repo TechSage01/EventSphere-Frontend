@@ -68,7 +68,27 @@ export default function CreateEventPage() {
 
     const reader = new FileReader()
     reader.onload = () => {
-      setCoverImageData(String(reader.result || ''))
+      const image = new Image()
+      image.onload = () => {
+        const maxSize = 1280
+        const scale = Math.min(1, maxSize / Math.max(image.width || maxSize, image.height || maxSize))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round((image.width || maxSize) * scale))
+        canvas.height = Math.max(1, Math.round((image.height || maxSize) * scale))
+
+        const context = canvas.getContext('2d')
+        if (!context) {
+          setCoverImageData(String(reader.result || ''))
+          return
+        }
+
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        setCoverImageData(canvas.toDataURL('image/jpeg', 0.78))
+      }
+      image.onerror = () => {
+        setCoverImageData(String(reader.result || ''))
+      }
+      image.src = String(reader.result || '')
     }
     reader.readAsDataURL(f)
   }
@@ -94,7 +114,8 @@ export default function CreateEventPage() {
         },
         body: JSON.stringify(body),
       })
-      const data = await res.json()
+      const contentType = res.headers.get('content-type') || ''
+      const data = contentType.includes('application/json') ? await res.json() : { message: await res.text() }
       if (!res.ok) throw new Error(data.message || 'Failed to create event')
       navigate(`/events/${data.event.id}`)
     } catch (err) {

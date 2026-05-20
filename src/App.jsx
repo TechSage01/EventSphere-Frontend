@@ -5,8 +5,11 @@ import VerifyPage from './pages/VerifyPage'
 import EventsPage from './pages/EventsPage'
 import CreateEventPage from './pages/CreateEventPage'
 import EventOverviewPage from './pages/EventOverviewPage'
+import AdminEventPage from './pages/AdminEventPage'
 import PublicEventPage from './pages/PublicEventPage'
+import VotingPage from './pages/Voting'
 import TicketPage from './pages/TicketPage'
+import ThankYouPage from './pages/ThankYouPage'
 
 export default function App() {
   const user = getUser()
@@ -20,7 +23,10 @@ export default function App() {
       <Route path="/events" element={user ? <EventsPage user={user} /> : <Navigate to="/signup" replace />} />
       <Route path="/events/new" element={user ? <CreateEventPage /> : <Navigate to="/signup" replace />} />
       <Route path="/events/:eventId" element={user ? <EventOverviewPage user={user} /> : <Navigate to="/signup" replace />} />
+      <Route path="/events/:eventId/admin" element={user ? <AdminEventPage user={user} /> : <Navigate to="/signup" replace />} />
       <Route path="/public/events/:eventId" element={<PublicEventPage />} />
+      <Route path="/public/events/:eventId/voting/:awardId?/:nomineeSlug?" element={<VotingPage />} />
+      <Route path="/thank-you" element={<ThankYouPage />} />
       <Route path="/tickets/:ticketId" element={<TicketPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
