@@ -151,8 +151,22 @@ export default function VotingPage() {
         const awData = await awRes.json()
         if (!evRes.ok) throw new Error(evData.message || 'Failed to load event')
         if (!awRes.ok) throw new Error(awData.message || 'Failed to load awards')
+        const awards = Array.isArray(awData.awards) ? awData.awards : []
+
+        // fetch contestants for each award and attach to award objects
+        const awardsWithContestants = await Promise.all(awards.map(async a => {
+          try {
+            const cRes = await fetch(`/api/awards/events/${eventId}/${a.id}/contestants`)
+            const cData = await cRes.json()
+            if (!cRes.ok) return { ...a, contestants: [] }
+            return { ...a, contestants: Array.isArray(cData.data?.contestants) ? cData.data.contestants : [] }
+          } catch (err) {
+            return { ...a, contestants: [] }
+          }
+        }))
+
         setEvent(evData.event)
-        setAwards(Array.isArray(awData.awards) ? awData.awards : [])
+        setAwards(awardsWithContestants)
       } catch (err) { setError(err.message) }
       finally { setLoading(false) }
     }
@@ -160,7 +174,7 @@ export default function VotingPage() {
   }, [eventId])
 
   const heroAward    = awards.find(a => a.id === awardId) || awards[0] || null
-  const heroNominees = Array.isArray(heroAward?.nominees) ? heroAward.nominees : []
+  const heroNominees = Array.isArray(heroAward?.contestants) ? heroAward.contestants.map(c=>c.name) : (Array.isArray(heroAward?.nominees) ? heroAward.nominees : [])
   const activeKey    = heroAward?.id || awardId || eventId
 
   const resolvedNominee = resolveNomineeName(heroAward, nomineeSlug)
@@ -352,15 +366,18 @@ export default function VotingPage() {
               ? <p style={{ color:'#5a5a6a', fontSize:14 }}>No nominees added yet.</p>
               : <div style={S.nomineeGrid}>
                   {heroNominees.map(n => {
-                    const name   = n?.name || n
+                    const name   = typeof n === 'string' ? n : (n?.name || n)
                     const active = formatDisplay(currentNominee) === formatDisplay(name)
                     return (
                       <button
                         key={name}
                         style={{ ...S.nomineePill, ...(active ? S.nomineePillOn : {}) }}
                         onClick={() => {
+                          // prefer contestant slug if available
+                          const contestant = (heroAward?.contestants || []).find(c => c.name === name || c.slug === slugify(name))
+                          const nomineeSlugToUse = contestant ? contestant.slug : slugify(name)
                           setSelected(p => ({ ...p, [activeKey]: name }))
-                          navigate(`/public/events/${eventId}/voting/${heroAward?.id}/${slugify(name)}`)
+                          navigate(`/public/events/${eventId}/voting/${heroAward?.id}/${nomineeSlugToUse}`)
                         }}
                         disabled={votingId === activeKey}
                       >

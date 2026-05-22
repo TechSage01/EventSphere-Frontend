@@ -75,7 +75,7 @@ function LandingPage() {
             Discover Events
           </button>
           <button type="button" className="signin" onClick={() => navigate('/signup')}>
-            Sign In
+            Get Started
           </button>
         </nav>
       </header>
@@ -230,7 +230,7 @@ function LandingPage() {
           <button type="button" onClick={() => navigate('/events')}>Discover</button>
           <button type="button" onClick={() => navigate('/events')}>Features</button>
           <button type="button" onClick={() => navigate('/signup')}>Create</button>
-          <button type="button" onClick={() => navigate('/signup')}>Sign in</button>
+          <button type="button" onClick={() => navigate('/signup')}>Get Started</button>
         </div>
       </footer>
     </main>
