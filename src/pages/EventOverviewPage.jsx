@@ -39,9 +39,9 @@ export default function EventOverviewPage({ user = null }) {
       try {
         const token = localStorage.getItem('es_token')
         const res   = await fetch(`/api/events/${eventId}`, { headers: { Authorization: `Bearer ${token}` } })
-        const data  = await res.json()
-        if (!res.ok) throw new Error(data.message || 'Failed to load event')
-        setEvent(data.event)
+        const payload  = await res.json()
+        if (!res.ok) throw new Error(payload.message || 'Failed to load event')
+        setEvent(payload.data?.event)
       } catch (err) { setError(err.message) }
       finally       { setLoading(false) }
     }
@@ -69,9 +69,9 @@ export default function EventOverviewPage({ user = null }) {
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify(editForm),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message)
-      setEvent(data.event); setEditing(false); showToast('Event saved.')
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload.message)
+      setEvent(payload.data?.event); setEditing(false); showToast('Event saved.')
     } catch (err) { setError(err.message) }
     finally       { setSavingEvent(false) }
   }
@@ -85,9 +85,9 @@ export default function EventOverviewPage({ user = null }) {
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify({ isPublic: !event.isPublic }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message)
-      setEvent(data.event)
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload.message)
+      setEvent(payload.data?.event)
     } catch (err) { setError(err.message) }
     finally       { setSavingVis(false) }
   }
@@ -101,9 +101,9 @@ export default function EventOverviewPage({ user = null }) {
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify({ emails: inviteEmails }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message)
-      setEvent(data.event); setInviteEmails(''); showToast('Invitations sent.')
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload.message)
+      setEvent(payload.data?.event); setInviteEmails(''); showToast('Invitations sent.')
     } catch (err) { setError(err.message) }
     finally       { setSendingInvites(false) }
   }
@@ -118,9 +118,9 @@ export default function EventOverviewPage({ user = null }) {
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify(hostForm),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message)
-      setEvent(data.event); setHostForm({ name:'', email:'', role:'Co-host' }); showToast('Host added.')
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload.message)
+      setEvent(payload.data?.event); setHostForm({ name:'', email:'', role:'Co-host' }); showToast('Host added.')
     } catch (err) { setError(err.message) }
     finally       { setAddingHost(false) }
   }
@@ -143,17 +143,17 @@ export default function EventOverviewPage({ user = null }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: user.name, email: user.email, note: '' }),
       })
-      const data = await res.json()
+      const payload = await res.json()
 
       if (!res.ok) {
         if (res.status === 409) {
-          showToast(data.message || 'You have already RSVP’d for this event.')
+          showToast(payload.message || 'You have already RSVP’d for this event.')
           return
         }
-        throw new Error(data.message || 'Failed to RSVP')
+        throw new Error(payload.message || 'Failed to RSVP')
       }
 
-      setEvent(data.event)
+      setEvent(payload.data?.event)
       showToast('RSVP confirmed.')
     } catch (err) {
       showToast(err.message)

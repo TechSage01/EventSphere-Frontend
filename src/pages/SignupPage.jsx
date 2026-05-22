@@ -19,9 +19,9 @@ export default function SignupPage() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email }),
       })
-      const data = await res.json()
+      const payload = await res.json()
 
-      if (!res.ok) throw new Error(data.message || 'Something went wrong')
+      if (!res.ok) throw new Error(payload.message || 'Something went wrong')
 
       // pass email to VerifyPage via router state
       navigate('/verify', { state: { email } })

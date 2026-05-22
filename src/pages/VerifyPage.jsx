@@ -21,13 +21,17 @@ function VerifyPage() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email, otp }),
       })
-      const data = await res.json()
- 
-      if (!res.ok) throw new Error(data.message || 'Invalid code')
- 
+      const payload = await res.json()
+
+      if (!res.ok) throw new Error(payload.message || 'Invalid code')
+
+      const user = payload.data?.user
+      const token = payload.data?.token
+      if (!user || !token) throw new Error('Missing authentication data')
+
       // ✅ Save user + token, then redirect
-      localStorage.setItem('es_user',  JSON.stringify(data.user))
-      localStorage.setItem('es_token', data.token)
+      localStorage.setItem('es_user', JSON.stringify(user))
+      localStorage.setItem('es_token', token)
       navigate('/events', { replace: true })
     } catch (err) {
       setError(err.message)

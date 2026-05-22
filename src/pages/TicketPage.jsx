@@ -19,12 +19,12 @@ export default function TicketPage() {
 
       try {
         const res = await fetch(`/api/tickets/${ticketId}`)
-        const data = await res.json()
+        const payload = await res.json()
 
-        if (!res.ok) throw new Error(data.message || 'Failed to load ticket')
+        if (!res.ok) throw new Error(payload.message || 'Failed to load ticket')
 
-        setTicket(data.ticket)
-        setEvent(data.event)
+        setTicket(payload.data?.ticket)
+        setEvent(payload.data?.event)
       } catch (err) {
         setError(err.message)
       } finally {
@@ -48,14 +48,14 @@ export default function TicketPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ticketId, reference }),
         })
-        const data = await res.json()
+        const payload = await res.json()
 
-        if (!res.ok) throw new Error(data.message || 'Payment verification failed')
+        if (!res.ok) throw new Error(payload.message || 'Payment verification failed')
 
-        setTicket(data.ticket)
-        setEvent(data.event)
+        setTicket(payload.data?.ticket)
+        setEvent(payload.data?.event)
         navigate(
-          `/thank-you?type=ticket&back=${encodeURIComponent(`/public/events/${data.ticket.eventId}`)}&title=${encodeURIComponent('Thank you for your payment')}&subtitle=${encodeURIComponent('Your ticket is confirmed. You can reserve another one for a friend next.')}`,
+          `/thank-you?type=ticket&back=${encodeURIComponent(`/public/events/${payload.data?.ticket?.eventId}`)}&title=${encodeURIComponent('Thank you for your payment')}&subtitle=${encodeURIComponent('Your ticket is confirmed. You can reserve another one for a friend next.')}`,
           { replace: true }
         )
       } catch (err) {

@@ -27,11 +27,11 @@ export default function EventsPage({ user = null }) {
             Authorization: `Bearer ${token}`,
           },
         })
-        const data = await res.json()
+        const payload = await res.json()
 
-        if (!res.ok) throw new Error(data.message || 'Failed to load events')
+        if (!res.ok) throw new Error(payload.message || 'Failed to load events')
 
-        setEvents(Array.isArray(data.events) ? data.events : [])
+        setEvents(Array.isArray(payload.data?.events) ? payload.data.events : [])
       } catch (err) {
         setError(err.message)
       } finally {

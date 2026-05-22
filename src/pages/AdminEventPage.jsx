@@ -25,7 +25,7 @@ export default function AdminEventPage({ user = null }) {
 
         if (!res.ok) throw new Error(payload.message || 'Failed to load admin data')
 
-        setData(payload)
+        setData(payload.data)
         setForm({ title: '', description: '', nomineesText: '' })
       } catch (err) {
         setError(err.message)
@@ -60,7 +60,7 @@ export default function AdminEventPage({ user = null }) {
 
       setSuccess('Award created successfully.')
       setForm({ title: '', description: '', nomineesText: '' })
-      setData(prev => prev ? { ...prev, awards: [payload.award, ...prev.awards] } : prev)
+      setData(prev => prev ? { ...prev, awards: [payload.data?.award, ...prev.awards] } : prev)
     } catch (err) {
       setError(err.message)
     } finally {
