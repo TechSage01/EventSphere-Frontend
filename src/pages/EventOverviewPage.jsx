@@ -39,17 +39,10 @@ export default function EventOverviewPage({ user = null }) {
       setLoading(true); setError('')
       try {
         const token = localStorage.getItem('es_token')
-<<<<<<< HEAD
         const res   = await fetch(`${API_BASE}/events/${eventId}`, { headers: { Authorization: `Bearer ${token}` } })
-        const data  = await res.json()
-        if (!res.ok) throw new Error(data.message || 'Failed to load event')
-        setEvent(data.event)
-=======
-        const res   = await fetch(`/api/events/${eventId}`, { headers: { Authorization: `Bearer ${token}` } })
         const payload  = await res.json()
         if (!res.ok) throw new Error(payload.message || 'Failed to load event')
         setEvent(payload.data?.event)
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
       } catch (err) { setError(err.message) }
       finally       { setLoading(false) }
     }

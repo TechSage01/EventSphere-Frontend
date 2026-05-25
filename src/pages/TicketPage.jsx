@@ -19,14 +19,8 @@ export default function TicketPage() {
       setError('')
 
       try {
-<<<<<<< HEAD
         const res = await fetch(`${API_BASE}/tickets/${ticketId}`)
-        const data = await res.json()
-=======
-        const res = await fetch(`/api/tickets/${ticketId}`)
         const payload = await res.json()
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
-
         if (!res.ok) throw new Error(payload.message || 'Failed to load ticket')
 
         setTicket(payload.data?.ticket)

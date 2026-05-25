@@ -1,36 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiRequest } from '../services/api.js'
-import { useAuth } from '../context/AuthContext.jsx'
 
 export default function SignupPage() {
-<<<<<<< HEAD
-  const [name, setName]       = useState('')
-  const [email, setEmail]     = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
-  const navigate = useNavigate()
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
-=======
-  const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
-
-  // Redirect if already authenticated
-  if (isAuthenticated) {
-    navigate('/events', { replace: true })
-    return null
-  }
-
-  const [formData, setFormData] = useState({ name: '', email: '' })
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-
-  function handleChange(e) {
-    const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
+  const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -38,7 +16,6 @@ export default function SignupPage() {
     setError('')
     setSuccess('')
 
-    const { name, email } = formData
     if (!name.trim()) {
       setError('Full name is required')
       setLoading(false)
@@ -51,41 +28,29 @@ export default function SignupPage() {
     }
 
     try {
-<<<<<<< HEAD
-      const res = await fetch(`${API_BASE}/auth/send-otp`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email, name }),
-=======
       const payload = await apiRequest('/auth/send-otp', {
         method: 'POST',
         body: JSON.stringify({ email: email.trim(), name: name.trim() }),
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
       })
 
-<<<<<<< HEAD
-      if (!res.ok) throw new Error(data.message || 'Something went wrong')
-
-      // pass email + name to VerifyPage via router state
-      // persist pending values in case user refreshes the verify page
-      try { localStorage.setItem('es_pending_email', email); localStorage.setItem('es_pending_name', name) } catch {}
-      navigate('/verify', { state: { email, name } })
-=======
       const debugCode = payload.data?.debugCode
       setSuccess(
         debugCode
           ? `${payload.message || 'Verification code sent.'} Dev code: ${debugCode}`
           : payload.message || 'Check your inbox for the verification code.'
       )
-      
-      // Redirect to verify page with email and name
+
+      try {
+        localStorage.setItem('es_pending_email', email.trim())
+        localStorage.setItem('es_pending_name', name.trim())
+      } catch {}
+
       setTimeout(() => {
-        navigate('/verify', { 
+        navigate('/verify', {
           state: { email: email.trim(), name: name.trim() },
-          replace: true 
+          replace: true,
         })
       }, 800)
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
     } catch (err) {
       setError(err.message || 'Failed to send verification code')
     } finally {
@@ -97,22 +62,17 @@ export default function SignupPage() {
     <div style={styles.shell}>
       <div style={styles.card}>
         <div style={styles.logo}>✦</div>
-<<<<<<< HEAD
         <h1 style={styles.title}>Sign in to EventsNest</h1>
         <p style={styles.sub}>Enter your name and email to receive a one-time code.</p>
-=======
-        <h1 style={styles.title}>Create your EventSphere account</h1>
-        <p style={styles.sub}>Sign up with your email to get started</p>
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
 
         <form onSubmit={handleSubmit} style={{ width: '100%' }}>
           <input
             type="text"
-<<<<<<< HEAD
             placeholder="Your full name"
             value={name}
             onChange={e => setName(e.target.value)}
             required
+            disabled={loading}
             style={styles.input}
           />
           <input
@@ -120,23 +80,6 @@ export default function SignupPage() {
             placeholder="you@example.com"
             value={email}
             onChange={e => setEmail(e.target.value)}
-=======
-            name="name"
-            placeholder="Your full name"
-            value={formData.name}
-            onChange={handleChange}
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
-            required
-            disabled={loading}
-            style={styles.input}
-          />
-          
-          <input
-            type="email"
-            name="email"
-            placeholder="you@example.com"
-            value={formData.email}
-            onChange={handleChange}
             required
             disabled={loading}
             style={{ ...styles.input, marginBottom: 12 }}

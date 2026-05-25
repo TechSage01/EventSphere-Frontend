@@ -83,7 +83,6 @@ function LandingPage() {
           <span className="ls-brand-name">EventsNest</span>
         </button>
 
-<<<<<<< HEAD
         <nav className={`ls-topnav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
           <span className="ls-clock">
             <span className="ls-clock-dot" />
@@ -92,16 +91,6 @@ function LandingPage() {
           <button type="button" className="ls-nav-link" onClick={() => navigate('/discover')}>Discover</button>
           <button type="button" className="ls-nav-link" onClick={() => navigate('/discover')}>Features</button>
           <button type="button" className="ls-signin" onClick={() => navigate('/signup')}>Sign in</button>
-=======
-        <nav className="topnav" aria-label="Primary">
-          <span className="topnav-time">{lagosTime}</span>
-          <button type="button" className="nav-link" onClick={() => navigate('/events')}>
-            Discover Events
-          </button>
-          <button type="button" className="signin" onClick={() => navigate('/signup')}>
-            Get Started
-          </button>
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
         </nav>
 
         <button
@@ -324,14 +313,9 @@ function LandingPage() {
           <button type="button" onClick={() => navigate('/discover')}>Discover</button>
           <button type="button" onClick={() => navigate('/discover')}>Features</button>
           <button type="button" onClick={() => navigate('/signup')}>Create</button>
-<<<<<<< HEAD
           <button type="button" onClick={() => navigate('/signup')}>Sign in</button>
         </nav>
         <p className="ls-footer-copy">© 2025 EventsNest · Lagos, Nigeria</p>
-=======
-          <button type="button" onClick={() => navigate('/signup')}>Get Started</button>
-        </div>
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
       </footer>
     </main>
   )

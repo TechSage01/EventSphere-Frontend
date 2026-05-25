@@ -44,16 +44,9 @@ export default function PublicEventPage() {
       setError('')
 
       try {
-<<<<<<< HEAD
         const eventRes = await fetch(`${API_BASE}/events/public/${eventId}`)
-        const eventData = await eventRes.json()
-        if (!eventRes.ok) throw new Error(eventData.message || 'Failed to load event')
-=======
-        const eventRes = await fetch(`/api/events/public/${eventId}`)
         const payload = await eventRes.json()
         if (!eventRes.ok) throw new Error(payload.message || 'Failed to load event')
->>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
-
         setEvent(payload.data?.event)
       } catch (err) {
         setError(err.message)
