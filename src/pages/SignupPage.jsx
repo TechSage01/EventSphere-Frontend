@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 export default function SignupPage() {
+  const [name, setName]       = useState('')
   const [email, setEmail]     = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
   const navigate = useNavigate()
-  const API_BASE = 'http://localhost:3333/api'
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -17,14 +18,16 @@ export default function SignupPage() {
       const res = await fetch(`${API_BASE}/auth/send-otp`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email }),
+        body:    JSON.stringify({ email, name }),
       })
       const data = await res.json()
 
       if (!res.ok) throw new Error(data.message || 'Something went wrong')
 
-      // pass email to VerifyPage via router state
-      navigate('/verify', { state: { email } })
+      // pass email + name to VerifyPage via router state
+      // persist pending values in case user refreshes the verify page
+      try { localStorage.setItem('es_pending_email', email); localStorage.setItem('es_pending_name', name) } catch {}
+      navigate('/verify', { state: { email, name } })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -37,10 +40,18 @@ export default function SignupPage() {
       <div style={styles.card}>
 
         <div style={styles.logo}>✦</div>
-        <h1 style={styles.title}>Sign in to EventSphere</h1>
-        <p style={styles.sub}>Enter your email to receive a one-time code.</p>
+        <h1 style={styles.title}>Sign in to EventsNest</h1>
+        <p style={styles.sub}>Enter your name and email to receive a one-time code.</p>
 
         <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+          <input
+            type="text"
+            placeholder="Your full name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            required
+            style={styles.input}
+          />
           <input
             type="email"
             placeholder="you@example.com"

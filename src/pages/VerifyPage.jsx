@@ -1,14 +1,24 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
  
 function VerifyPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const email                 = location.state?.email || ''
+  const pendingEmail = location.state?.email || ''
+  const pendingName  = location.state?.name || ''
+  const email                 = pendingEmail || (localStorage.getItem('es_pending_email') || '')
+  const name                  = pendingName  || (localStorage.getItem('es_pending_name')  || '')
   const [otp, setOtp]         = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
-  const API_BASE = 'http://localhost:3333/api'
+  const [resendLoading, setResendLoading] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [resendMessage, setResendMessage] = useState('')
+  const resendTimerRef = useRef(null)
+  const otpRef = useRef(null)
+  const [flashError, setFlashError] = useState(false)
+  const [remainingAttempts, setRemainingAttempts] = useState(null)
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
  
   async function handleVerify(e) {
     e.preventDefault()
@@ -19,7 +29,7 @@ function VerifyPage() {
       const res = await fetch(`${API_BASE}/auth/verify-otp`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email, otp }),
+        body:    JSON.stringify({ email, code: otp }),
       })
       const data = await res.json()
  
@@ -28,13 +38,66 @@ function VerifyPage() {
       // ✅ Save user + token, then redirect
       localStorage.setItem('es_user',  JSON.stringify(data.user))
       localStorage.setItem('es_token', data.token)
+      // clear pending values
+      try { localStorage.removeItem('es_pending_email'); localStorage.removeItem('es_pending_name') } catch {}
       navigate('/events', { replace: true })
     } catch (err) {
-      setError(err.message)
+      const msg = err.message || 'Verification failed'
+      setError(msg)
+      // if invalid code, clear input, focus and flash red highlight; parse remaining attempts
+      if (/invalid code/i.test(msg) || /attempts remaining/i.test(msg)) {
+        setOtp('')
+        setFlashError(true)
+        try { otpRef.current?.focus() } catch {}
+        const m = msg.match(/(\d+) attempts remaining/i)
+        if (m && m[1]) setRemainingAttempts(Number(m[1]))
+        setTimeout(() => setFlashError(false), 700)
+      }
     } finally {
       setLoading(false)
     }
   }
+
+  async function handleResend() {
+    if (!email) return setResendMessage('No email to send to')
+    if (resendCooldown > 0) return
+    setResendLoading(true)
+    setResendMessage('')
+    try {
+      const res = await fetch(`${API_BASE}/auth/send-otp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Failed to resend')
+      setResendMessage('Code sent')
+      // start cooldown
+      setResendCooldown(30)
+      resendTimerRef.current = setInterval(() => {
+        setResendCooldown(prev => {
+          if (prev <= 1) {
+            clearInterval(resendTimerRef.current)
+            resendTimerRef.current = null
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    } catch (err) {
+      setResendMessage(err.message || 'Failed to send code')
+    } finally {
+      setResendLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (resendTimerRef.current) {
+        clearInterval(resendTimerRef.current)
+        resendTimerRef.current = null
+      }
+    }
+  }, [])
  
   return (
     <div style={authShell}>
@@ -51,13 +114,31 @@ function VerifyPage() {
             maxLength={6}
             value={otp}
             onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
+            ref={otpRef}
             required
-            style={{ ...authInput, letterSpacing: '0.4em', textAlign: 'center', fontSize: 22 }}
+            style={authOtpInput}
           />
           {error && <p style={authError}>{error}</p>}
-          <button type="submit" disabled={loading} style={authBtn}>
-            {loading ? 'Verifying…' : 'Verify code →'}
-          </button>
+          {remainingAttempts !== null && (
+            <div style={{ fontSize: 13, color: '#fca5a5', marginBottom: 8 }}>Attempts remaining: {remainingAttempts}</div>
+          )}
+          {!email && <p style={authError}>Email is missing — go back and enter your email first.</p>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <button type="submit" disabled={loading} style={{ ...authBtn, width: 'auto', padding: '12px 20px' }}>
+              {loading ? 'Verifying…' : 'Verify code →'}
+            </button>
+            <div style={{ textAlign: 'right', minWidth: 160 }}>
+              <div style={authResendMsg}>{resendMessage}</div>
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendLoading || resendCooldown > 0 || !email}
+                style={ (resendLoading || resendCooldown > 0 || !email) ? authResendBtnDisabled : authResendBtn }
+              >
+                {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : (resendLoading ? 'Sending…' : 'Resend code')}
+              </button>
+            </div>
+          </div>
         </form>
  
         <button
@@ -108,6 +189,27 @@ const authInput = {
   fontFamily: "'DM Sans', system-ui, sans-serif",
   boxSizing: 'border-box',
 }
+const authOtpInput = {
+  width: '100%',
+  maxWidth: 320,
+  margin: '0 auto 12px',
+  background: 'rgba(255,255,255,0.03)',
+  border: '1px solid rgba(255,255,255,0.06)',
+  borderRadius: 12,
+  padding: '14px 18px',
+  fontSize: 28,
+  color: '#e8e8ec',
+  outline: 'none',
+  letterSpacing: '0.5em',
+  textAlign: 'center',
+  fontFamily: "'DM Sans', system-ui, sans-serif",
+  boxSizing: 'border-box',
+}
+const authResendMsg = { fontSize: 12, color: '#9ca3b3', marginBottom: 6, minHeight: 16 }
+const authResendBtn = { background: 'transparent', border: '1px solid rgba(154,208,255,0.12)', color: '#9ad0ff', padding: '8px 10px', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700 }
+const authResendBtnDisabled = { ...authResendBtn, opacity: 0.5, cursor: 'default' }
+const authOtpInputError = { boxShadow: '0 0 0 4px rgba(248,113,113,0.06)', borderColor: 'rgba(248,113,113,0.6)' }
+const authHint = { fontSize: 12, color: '#9ca3b3', marginTop: 6 }
 const authBtn = {
   width: '100%',
   background: '#e8e8ec',

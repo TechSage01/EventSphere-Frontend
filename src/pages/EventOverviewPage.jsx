@@ -13,6 +13,7 @@ const themeMap = {
 export default function EventOverviewPage({ user = null }) {
   const { eventId } = useParams()
   const navigate    = useNavigate()
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
 
   const [event,           setEvent]           = useState(null)
   const [loading,         setLoading]         = useState(true)
@@ -38,7 +39,7 @@ export default function EventOverviewPage({ user = null }) {
       setLoading(true); setError('')
       try {
         const token = localStorage.getItem('es_token')
-        const res   = await fetch(`/api/events/${eventId}`, { headers: { Authorization: `Bearer ${token}` } })
+        const res   = await fetch(`${API_BASE}/events/${eventId}`, { headers: { Authorization: `Bearer ${token}` } })
         const data  = await res.json()
         if (!res.ok) throw new Error(data.message || 'Failed to load event')
         setEvent(data.event)
@@ -64,7 +65,7 @@ export default function EventOverviewPage({ user = null }) {
     setSavingEvent(true)
     try {
       const token = localStorage.getItem('es_token')
-      const res = await fetch(`/api/events/${eventId}`, {
+      const res = await fetch(`${API_BASE}/events/${eventId}`, {
         method: 'PATCH',
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify(editForm),
@@ -80,7 +81,7 @@ export default function EventOverviewPage({ user = null }) {
     setSavingVis(true)
     try {
       const token = localStorage.getItem('es_token')
-      const res = await fetch(`/api/events/${eventId}/visibility`, {
+      const res = await fetch(`${API_BASE}/events/${eventId}/visibility`, {
         method: 'PATCH',
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify({ isPublic: !event.isPublic }),
@@ -96,7 +97,7 @@ export default function EventOverviewPage({ user = null }) {
     setSendingInvites(true)
     try {
       const token = localStorage.getItem('es_token')
-      const res = await fetch(`/api/events/${eventId}/invitations`, {
+      const res = await fetch(`${API_BASE}/events/${eventId}/invitations`, {
         method: 'POST',
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify({ emails: inviteEmails }),
@@ -113,7 +114,7 @@ export default function EventOverviewPage({ user = null }) {
     setAddingHost(true); setError('')
     try {
       const token = localStorage.getItem('es_token')
-      const res = await fetch(`/api/events/${eventId}/hosts`, {
+      const res = await fetch(`${API_BASE}/events/${eventId}/hosts`, {
         method: 'POST',
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify(hostForm),
@@ -138,7 +139,7 @@ export default function EventOverviewPage({ user = null }) {
     }
 
     try {
-      const res = await fetch(`/api/events/public/${eventId}/rsvp`, {
+      const res = await fetch(`${API_BASE}/events/public/${eventId}/rsvp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: user.name, email: user.email, note: '' }),
@@ -169,7 +170,7 @@ export default function EventOverviewPage({ user = null }) {
   const rsvpCount    = event.rsvpCount || (Array.isArray(event.rsvps) ? event.rsvps.length : 0)
   const invitedGuests= Array.isArray(event.invitedGuests) ? event.invitedGuests : []
   const publicUrl    = `${window.location.origin}/public/events/${event.id}`
-  const shortUrl     = `eventsphere.com/${event.id?.slice(0,8) || 'preview'}`
+  const shortUrl     = `eventsnest.com/${event.id?.slice(0,8) || 'preview'}`
 
   return (
     <div style={{ ...s.page, background:'#111114' }}>
@@ -178,7 +179,7 @@ export default function EventOverviewPage({ user = null }) {
       <header style={s.topbar}>
         <div style={s.topbarLeft}>
           <span style={s.logo}>✦</span>
-          <span style={s.brand}>EventSphere</span>
+          <span style={s.brand}>EventsNest</span>
         </div>
         <button style={s.eventPageBtn} onClick={() => navigate(`/public/events/${event.id}`)}>
           Event Page ↗

@@ -19,6 +19,7 @@ const ticketOptions = [
 export default function PublicEventPage() {
   const { eventId } = useParams()
   const navigate = useNavigate()
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
   const [event, setEvent] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -43,7 +44,7 @@ export default function PublicEventPage() {
       setError('')
 
       try {
-        const eventRes = await fetch(`/api/events/public/${eventId}`)
+        const eventRes = await fetch(`${API_BASE}/events/public/${eventId}`)
         const eventData = await eventRes.json()
         if (!eventRes.ok) throw new Error(eventData.message || 'Failed to load event')
 
@@ -65,7 +66,7 @@ export default function PublicEventPage() {
     setError('')
 
     try {
-      const res = await fetch(`/api/tickets/events/${eventId}/register`, {
+      const res = await fetch(`${API_BASE}/tickets/events/${eventId}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, ticketType: selectedTicketType }),
@@ -105,7 +106,7 @@ export default function PublicEventPage() {
       <header style={styles.topbar}>
         <div style={styles.brandRow}>
           <span style={{ ...styles.logo, color: theme.accent }}>✦</span>
-          <span style={styles.brand}>EventSphere</span>
+          <span style={styles.brand}>EventsNest</span>
         </div>
         <button type="button" style={styles.backBtn} onClick={() => navigate(`/events/${event.id}`)}>
           Back to Overview
@@ -263,7 +264,7 @@ export default function PublicEventPage() {
               <div style={styles.detailRow}><span>Contact Desk</span><strong>{event.hostEmail || '-'}</strong></div>
               <div style={styles.detailRow}><span>Total Capacity Seats Sent</span><strong>{event.invitationsSent || 0} RSVPs</strong></div>
               <p style={styles.footerNote}>
-                Need to amplify your reach? Submit this event structure to the EventSphere Discover Board to get indexed in global regional feeds.
+                Need to amplify your reach? Submit this event structure to the EventsNest Discover Board to get indexed in regional feeds.
               </p>
             </div>
 

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 export default function AdminEventPage({ user = null }) {
   const { eventId } = useParams()
   const navigate = useNavigate()
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -18,7 +19,7 @@ export default function AdminEventPage({ user = null }) {
 
       try {
         const token = localStorage.getItem('es_token')
-        const res = await fetch(`/api/events/${eventId}/admin`, {
+        const res = await fetch(`${API_BASE}/events/${eventId}/admin`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         const payload = await res.json()
@@ -45,7 +46,7 @@ export default function AdminEventPage({ user = null }) {
 
     try {
       const token = localStorage.getItem('es_token')
-      const res = await fetch(`/api/awards/events/${eventId}`, {
+      const res = await fetch(`${API_BASE}/awards/events/${eventId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -91,9 +92,14 @@ export default function AdminEventPage({ user = null }) {
           <div style={styles.kicker}>Admin</div>
           <h1 style={styles.title}>{event.title}</h1>
         </div>
-        <button type="button" style={styles.backBtn} onClick={() => navigate(`/events/${eventId}`)}>
-          Back to Event
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" style={styles.backBtn} onClick={() => navigate(`/events/${eventId}`)}>
+            Back to Event
+          </button>
+          <button type="button" style={styles.secondaryBtn} onClick={() => navigate(`/events/${eventId}/scan`)}>
+            Open Scanner
+          </button>
+        </div>
       </header>
 
       <main style={styles.main}>
@@ -287,6 +293,7 @@ const styles = {
   textarea: { width: '100%', boxSizing: 'border-box', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.2)', color: '#f1f1f5', padding: '12px 14px', fontFamily: "'DM Sans', system-ui, sans-serif", resize: 'vertical' },
   helper: { color: '#a9a9b6', fontSize: 12, marginTop: -4 },
   primaryBtn: { border: 'none', borderRadius: 14, padding: '12px 16px', background: '#f1f1f5', color: '#111', fontWeight: 800, cursor: 'pointer' },
+  secondaryBtn: { border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: '#f1f1f5', borderRadius: 12, padding: '10px 14px', fontWeight: 800, cursor: 'pointer' },
   success: { padding: '12px 14px', borderRadius: 14, background: 'rgba(34,197,94,0.12)', color: '#86efac', marginBottom: 12, fontWeight: 700 },
   error: { padding: '12px 14px', borderRadius: 14, background: 'rgba(248,113,113,0.12)', color: '#fca5a5', marginBottom: 12, fontWeight: 700 },
   list: { display: 'grid', gap: 10 },

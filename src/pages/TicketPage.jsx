@@ -6,6 +6,7 @@ export default function TicketPage() {
   const { ticketId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
   const [ticket, setTicket] = useState(null)
   const [event, setEvent] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -18,7 +19,7 @@ export default function TicketPage() {
       setError('')
 
       try {
-        const res = await fetch(`/api/tickets/${ticketId}`)
+        const res = await fetch(`${API_BASE}/tickets/${ticketId}`)
         const data = await res.json()
 
         if (!res.ok) throw new Error(data.message || 'Failed to load ticket')
@@ -43,7 +44,7 @@ export default function TicketPage() {
       setVerifying(true)
 
       try {
-        const res = await fetch('/api/tickets/paystack/verify', {
+        const res = await fetch(`${API_BASE}/tickets/paystack/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ticketId, reference }),

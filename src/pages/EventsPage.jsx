@@ -14,6 +14,7 @@ export default function EventsPage({ user = null }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
 
   useEffect(() => {
     async function loadEvents() {
@@ -22,7 +23,7 @@ export default function EventsPage({ user = null }) {
 
       try {
         const token = localStorage.getItem('es_token')
-        const res = await fetch('/api/events', {
+        const res = await fetch(`${API_BASE}/events`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -52,7 +53,7 @@ export default function EventsPage({ user = null }) {
       <header style={styles.topbar}>
         <nav style={styles.topbarLeft}>
           {/* Luma star logo */}
-          <span style={styles.starLogo} aria-label="EventSphere">✦</span>
+          <span style={styles.starLogo} aria-label="EventsNest">✦</span>
 
           <a href="/events"    style={styles.navItem} data-active="true">
             <span style={styles.navIcon}>▦</span> Events

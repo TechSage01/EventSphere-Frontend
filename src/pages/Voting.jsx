@@ -60,9 +60,9 @@ function estimateFee(amount) {
 }
 
 async function verifyVotePayment(ctx, response) {
-  const { eventId, awardId, voteReference, quantity, name, email, nominee, setAwards, setVoteMessage, navigate, backUrl } = ctx
+  const { apiBase, eventId, awardId, voteReference, quantity, name, email, nominee, setAwards, setVoteMessage, navigate, backUrl } = ctx
   try {
-    const res  = await fetch(`/api/awards/events/${eventId}/${awardId}/vote`, {
+    const res  = await fetch(`${apiBase}/awards/events/${eventId}/${awardId}/vote`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reference: response.reference || voteReference, name, email, quantity, nominee }),
@@ -90,6 +90,7 @@ export default function VotingPage() {
   const { eventId, awardId, nomineeSlug } = useParams()
   const navigate = useNavigate()
   const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
 
   const [event,    setEvent]    = useState(null)
   const [awards,   setAwards]   = useState([])
@@ -144,8 +145,8 @@ export default function VotingPage() {
       setLoading(true); setError('')
       try {
         const [evRes, awRes] = await Promise.all([
-          fetch(`/api/events/public/${eventId}`),
-          fetch(`/api/awards/events/${eventId}`),
+          fetch(`${API_BASE}/events/public/${eventId}`),
+          fetch(`${API_BASE}/awards/events/${eventId}`),
         ])
         const evData = await evRes.json()
         const awData = await awRes.json()
@@ -218,6 +219,7 @@ export default function VotingPage() {
             quantity, name: form.name, email: form.email, nominee: currentNominee,
             setAwards, setVoteMessage: setVoteMsg,
             navigate,
+            apiBase: API_BASE,
             backUrl: `/public/events/${eventId}/voting/${activeKey}`,
           }, response)
         },
@@ -238,7 +240,7 @@ export default function VotingPage() {
       <header style={S.topbar}>
         <div style={S.brand}>
           <div style={S.brandMark}>✦</div>
-          <span style={S.brandText}>EventSphere</span>
+          <span style={S.brandText}>EventsNest</span>
         </div>
         <div style={S.secureTag}>
           <span style={S.secureDot} />

@@ -1,19 +1,23 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import screenImage from '../assets/screen.png'
+import heroImage from '../assets/hero.png'
 import phoneVideo from '../assets/phone-dark.webm'
 import './LandingPage.css'
 
 const featureCards = [
   {
+    icon: '✦',
     title: 'Beautiful event pages',
     copy: 'Create clean, focused pages that look premium from the first scroll.',
   },
   {
+    icon: '◈',
     title: 'Invites people actually open',
     copy: 'Share one link for RSVP, tickets, and event details without clutter.',
   },
   {
+    icon: '◎',
     title: 'Simple day-of flow',
     copy: 'Keep attendees organized with a landing page that stays calm and readable.',
   },
@@ -50,188 +54,268 @@ function formatNigeriaTime(date) {
 
 function LandingPage() {
   const [lagosTime, setLagosTime] = useState(() => formatNigeriaTime(new Date()))
+  const [menuOpen, setMenuOpen] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
+    const closeMenuOnResize = () => {
+      if (window.innerWidth > 425) setMenuOpen(false)
+    }
+
     const updateClock = () => setLagosTime(formatNigeriaTime(new Date()))
     updateClock()
-
     const timerId = window.setInterval(updateClock, 60_000)
-    return () => window.clearInterval(timerId)
+    window.addEventListener('resize', closeMenuOnResize)
+
+    return () => {
+      window.clearInterval(timerId)
+      window.removeEventListener('resize', closeMenuOnResize)
+    }
   }, [])
 
   return (
-    <main className="landing-shell">
-      <header className="topbar">
-        <button className="brand" type="button" onClick={() => navigate('/home')} aria-label="EventSphere home">
-          <span className="brand-badge">
-            <img className="brand-mark" src={screenImage} alt="EventSphere" />
-          </span>
+    <main className="ls-shell">
+
+      {/* ── TOPBAR ── */}
+      <header className="ls-topbar">
+        <button className="ls-brand" type="button" onClick={() => navigate('/home')} aria-label="EventsNest home">
+          <img className="ls-brand-mark" src={screenImage} alt="" aria-hidden="true" />
+          <span className="ls-brand-name">EventsNest</span>
         </button>
 
-        <nav className="topnav" aria-label="Primary">
-          <span className="topnav-time">{lagosTime}</span>
-          <button type="button" className="nav-link" onClick={() => navigate('/events')}>
-            Discover Events
-          </button>
-          <button type="button" className="signin" onClick={() => navigate('/signup')}>
-            Sign In
-          </button>
+        <nav className={`ls-topnav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
+          <span className="ls-clock">
+            <span className="ls-clock-dot" />
+            {lagosTime}
+          </span>
+          <button type="button" className="ls-nav-link" onClick={() => navigate('/discover')}>Discover</button>
+          <button type="button" className="ls-nav-link" onClick={() => navigate('/discover')}>Features</button>
+          <button type="button" className="ls-signin" onClick={() => navigate('/signup')}>Sign in</button>
         </nav>
+
+        <button
+          type="button"
+          className={`ls-menu-toggle ${menuOpen ? 'is-open' : ''}`}
+          aria-label="Toggle navigation menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((value) => !value)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
       </header>
 
-      <section className="hero-layout" id="discover">
-        <div className="hero-copy">
-          <p className="eyebrow">A premium home for your event brand</p>
-          <h1>
-            Delightful
-            <br />
-            events
-          </h1>
-          <h2 className="gradient-line">start here.</h2>
-          <p className="lede">
-            Set up an event page, invite friends, and sell tickets from one clean, cinematic home.
-            Keep the experience simple for guests and polished on every device.
+      {/* ── HERO ── */}
+      <section className="ls-hero">
+        <div className="ls-hero-copy">
+          <p className="ls-eyebrow">
+            <span className="ls-eyebrow-dot" />
+            A premium home for your event brand
           </p>
-
-          <div className="hero-actions">
-            <button type="button" className="primary-btn" onClick={() => navigate('/signup')}>
+          <h1 className="ls-h1">
+            Delightful<br />
+            <span className="ls-h1-accent">events</span><br />
+            start here.
+          </h1>
+          <p className="ls-lede">
+            Set up an event page, invite friends, and sell tickets from one
+            clean, cinematic home. Keep the experience simple for guests and
+            polished on every device.
+          </p>
+          <div className="ls-hero-actions">
+            <button type="button" className="ls-btn-primary" onClick={() => navigate('/signup')}>
               Create your first event
+              <span className="ls-btn-arrow">→</span>
             </button>
-            <button type="button" className="secondary-btn" onClick={() => navigate('/events')}>
-              Learn more
+            <button type="button" className="ls-btn-ghost" onClick={() => navigate('/discover')}>
+              Browse events
             </button>
           </div>
 
-          <ul className="stats-row" aria-label="EventSphere highlights">
-            <li>
-              <strong>Fast</strong>
-              <span>launch pages in minutes</span>
-            </li>
-            <li>
-              <strong>Clean</strong>
-              <span>focus on the event, not the UI</span>
-            </li>
-            <li>
-              <strong>Local</strong>
-              <span>Nigeria time in the header</span>
-            </li>
-          </ul>
+          <div className="ls-stats-row">
+            <div className="ls-stat">
+              <strong>500+</strong>
+              <span>Events hosted</span>
+            </div>
+            <div className="ls-stat-divider" />
+            <div className="ls-stat">
+              <strong>12k+</strong>
+              <span>Tickets sold</span>
+            </div>
+            <div className="ls-stat-divider" />
+            <div className="ls-stat">
+              <strong>Lagos</strong>
+              <span>Built for Nigeria</span>
+            </div>
+          </div>
         </div>
 
-        <div className="media-panel" aria-label="Event preview">
-          <div className="media-orb" aria-hidden="true" />
-          <div className="media-halo" aria-hidden="true" />
-          <div className="spark spark-left" aria-hidden="true" />
-          <div className="spark spark-right" aria-hidden="true" />
-          <div className="floating-card floating-card-left">
-            <span className="floating-kicker">NEW</span>
-            <strong>Run a sold-out night.</strong>
-            <p>Simple details, premium presentation, and a clean RSVP path.</p>
+        <div className="ls-hero-media" aria-label="Event preview">
+          <div className="ls-media-grid-bg" aria-hidden="true" />
+
+          <div className="ls-floating-pill ls-pill-top">
+            <span className="ls-pill-live">LIVE</span>
+            <span>Sunset Sessions · Lagos</span>
           </div>
-          <div className="phone-frame">
-            <video className="phone-video" autoPlay loop muted playsInline preload="auto">
+
+          <div className="ls-phone-frame">
+            <div className="ls-phone-notch" />
+            <video className="ls-phone-video" autoPlay loop muted playsInline preload="auto">
               <source src={phoneVideo} type="video/webm" />
             </video>
           </div>
-          <div className="floating-card floating-card-right">
-            <span className="floating-kicker">LIVE</span>
-            <strong>Keep guests in the loop.</strong>
-            <p>Share one page for tickets, updates, and event details.</p>
+
+          <div className="ls-floating-card">
+            <div className="ls-fc-row">
+              <div className="ls-fc-avatar">SS</div>
+              <div>
+                <p className="ls-fc-name">Sunset Sessions</p>
+                <p className="ls-fc-sub">248 confirmed · Tickets live</p>
+              </div>
+            </div>
+            <div className="ls-fc-bar">
+              <div className="ls-fc-bar-fill" style={{ width: '82%' }} />
+            </div>
+            <p className="ls-fc-pct">82% capacity</p>
           </div>
         </div>
       </section>
 
-      <section className="trust-strip" aria-label="Event types">
-        {tags.map((tag) => (
-          <span key={tag}>{tag}</span>
+      <div className={`ls-mobile-menu ${menuOpen ? 'is-open' : ''}`} aria-hidden={!menuOpen}>
+        <button type="button" onClick={() => { setMenuOpen(false); navigate('/discover') }}>Discover</button>
+        <button type="button" onClick={() => { setMenuOpen(false); navigate('/discover') }}>Features</button>
+        <button type="button" onClick={() => { setMenuOpen(false); navigate('/signup') }}>Sign in</button>
+      </div>
+
+      {/* ── TRUST STRIP ── */}
+      <div className="ls-trust-strip" aria-label="Event types">
+        {[...tags, ...tags].map((tag, i) => (
+          <span key={i} className="ls-trust-tag">{tag}</span>
         ))}
-      </section>
+      </div>
 
-      <section className="content-section" id="learn">
-        <div className="section-heading">
-          <p className="eyebrow">Why it feels good</p>
-          <h3>Built to feel calm, modern, and expensive.</h3>
-          <p>
-            The layout keeps the visual language dark and cinematic so the event content stays in
-            the spotlight instead of fighting with the interface.
-          </p>
+      {/* ── FEATURES ── */}
+      <section className="ls-features">
+        <div className="ls-section-label">
+          <span className="ls-section-line" />
+          <span>Why it feels good</span>
+          <span className="ls-section-line" />
         </div>
+        <h2 className="ls-section-h2">Built to feel calm, modern, and expensive.</h2>
+        <p className="ls-section-sub">
+          The layout keeps the visual language dark and cinematic so the event content
+          stays in the spotlight instead of fighting with the interface.
+        </p>
 
-        <div className="feature-grid">
+        <div className="ls-feature-grid">
           {featureCards.map((card) => (
-            <article className="feature-card" key={card.title}>
-              <h4>{card.title}</h4>
-              <p>{card.copy}</p>
+            <article className="ls-feature-card" key={card.title}>
+              <span className="ls-feature-icon">{card.icon}</span>
+              <h3 className="ls-feature-title">{card.title}</h3>
+              <p className="ls-feature-copy">{card.copy}</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="workflow-section" id="create">
-        <div className="workflow-panel">
-          <div className="workflow-copy">
-            <p className="eyebrow">How it comes together</p>
-            <h3>Everything on one page, without the page feeling crowded.</h3>
-            <p>
-              Use this home screen for launches, club nights, conferences, or workshops. Keep the
-              content structured, then let the visuals do the heavy lifting.
-            </p>
+      {/* ── WORKFLOW ── */}
+      <section className="ls-workflow">
+        <div className="ls-workflow-left">
+          <div className="ls-section-label">
+            <span className="ls-section-line" />
+            <span>How it comes together</span>
+            <span className="ls-section-line" />
           </div>
+          <h2 className="ls-section-h2">Everything on one page, without the page feeling crowded.</h2>
+          <p className="ls-section-sub">
+            For launches, club nights, conferences, or workshops. Keep the content
+            structured, then let the visuals do the heavy lifting.
+          </p>
 
-          <div className="workflow-steps">
-            {steps.map((step) => (
-              <article className="workflow-step" key={step.number}>
-                <span>{step.number}</span>
-                <div>
-                  <h4>{step.title}</h4>
-                  <p>{step.copy}</p>
+          <div className="ls-steps">
+            {steps.map((step, i) => (
+              <article className="ls-step" key={step.number}>
+                <div className="ls-step-num-col">
+                  <span className="ls-step-num">{step.number}</span>
+                  {i < steps.length - 1 && <span className="ls-step-connector" />}
+                </div>
+                <div className="ls-step-body">
+                  <h4 className="ls-step-title">{step.title}</h4>
+                  <p className="ls-step-copy">{step.copy}</p>
                 </div>
               </article>
             ))}
           </div>
         </div>
 
-        <aside className="showcase-card" aria-label="Event summary">
-          <div className="showcase-top">
-            <span className="showcase-dot" />
-            <span>Tonight in Lagos</span>
-          </div>
-          <h4>Sunset Sessions</h4>
-          <p>Music, networking, and a clean RSVP flow for 300+ guests.</p>
-
-          <div className="showcase-art">
-            <img src={screenImage} alt="EventSphere mark" />
+        <aside className="ls-showcase">
+          <div className="ls-showcase-header">
+            <span className="ls-showcase-live">
+              <span className="ls-clock-dot" />
+              Tonight in Lagos
+            </span>
+            <span className="ls-showcase-time">7:00 PM</span>
           </div>
 
-          <dl className="showcase-meta">
-            <div>
-              <dt>Time</dt>
-              <dd>7:00 PM</dd>
+          <div className="ls-showcase-art">
+            <img src={heroImage} alt="EventsNest hero artwork" />
+            <div className="ls-showcase-art-glow" aria-hidden="true" />
+          </div>
+
+          <h4 className="ls-showcase-title">Sunset Sessions</h4>
+          <p className="ls-showcase-sub">Music, networking, and a clean RSVP flow for 300+ guests.</p>
+
+          <div className="ls-showcase-meta">
+            <div className="ls-meta-item">
+              <span className="ls-meta-label">Guests</span>
+              <span className="ls-meta-val">248</span>
             </div>
-            <div>
-              <dt>Guests</dt>
-              <dd>248 confirmed</dd>
+            <div className="ls-meta-item">
+              <span className="ls-meta-label">Status</span>
+              <span className="ls-meta-val ls-meta-live">Live</span>
             </div>
-            <div>
-              <dt>Status</dt>
-              <dd>Tickets live</dd>
+            <div className="ls-meta-item">
+              <span className="ls-meta-label">Capacity</span>
+              <span className="ls-meta-val">82%</span>
             </div>
-          </dl>
+          </div>
+
+          <button type="button" className="ls-showcase-btn" onClick={() => navigate('/signup')}>
+            Get tickets →
+          </button>
         </aside>
       </section>
 
-      <footer className="footer">
-        <div>
-          <strong>EventSphere</strong>
-          <p>Modern event home pages with a premium first impression.</p>
+      {/* ── CTA ── */}
+      <section className="ls-cta">
+        <div className="ls-cta-inner">
+          <p className="ls-eyebrow">
+            <span className="ls-eyebrow-dot" />
+            Ready to go?
+          </p>
+          <h2 className="ls-cta-h2">Your next event deserves a premium home.</h2>
+          <button type="button" className="ls-btn-primary ls-btn-lg" onClick={() => navigate('/signup')}>
+            Create your first event
+            <span className="ls-btn-arrow">→</span>
+          </button>
         </div>
-        <div className="footer-links">
-          <button type="button" onClick={() => navigate('/events')}>Discover</button>
-          <button type="button" onClick={() => navigate('/events')}>Features</button>
+      </section>
+
+      {/* ── FOOTER ── */}
+      <footer className="ls-footer">
+        <div className="ls-footer-brand">
+          <img className="ls-brand-mark" src={screenImage} alt="" aria-hidden="true" />
+          <strong>EventsNest</strong>
+          <p>Modern event pages with a premium first impression.</p>
+        </div>
+        <nav className="ls-footer-nav" aria-label="Footer">
+          <button type="button" onClick={() => navigate('/discover')}>Discover</button>
+          <button type="button" onClick={() => navigate('/discover')}>Features</button>
           <button type="button" onClick={() => navigate('/signup')}>Create</button>
           <button type="button" onClick={() => navigate('/signup')}>Sign in</button>
-        </div>
+        </nav>
+        <p className="ls-footer-copy">© 2025 EventsNest · Lagos, Nigeria</p>
       </footer>
     </main>
   )

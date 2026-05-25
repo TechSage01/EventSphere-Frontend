@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import LandingPage from './components/LandingPage'
 import SignupPage from './pages/SignupPage'
 import VerifyPage from './pages/VerifyPage'
+import DiscoverPage from './pages/DiscoverPage'
+import CalendarPage from './pages/CalendarPage'
 import EventsPage from './pages/EventsPage'
 import CreateEventPage from './pages/CreateEventPage'
 import EventOverviewPage from './pages/EventOverviewPage'
@@ -10,6 +12,7 @@ import PublicEventPage from './pages/PublicEventPage'
 import VotingPage from './pages/Voting'
 import TicketPage from './pages/TicketPage'
 import ThankYouPage from './pages/ThankYouPage'
+import ScannerPage from './pages/ScannerPage'
 
 export default function App() {
   const user = getUser()
@@ -18,6 +21,9 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/home" element={<Navigate to="/" replace />} />
+      <Route path="/discover" element={<DiscoverPage />} />
+      <Route path="/home/calendars" element={<CalendarPage />} />
+      <Route path="/calendars" element={<Navigate to="/home/calendars" replace />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/verify" element={<VerifyPage />} />
       <Route path="/events" element={user ? <EventsPage user={user} /> : <Navigate to="/signup" replace />} />
@@ -28,6 +34,7 @@ export default function App() {
       <Route path="/public/events/:eventId/voting/:awardId?/:nomineeSlug?" element={<VotingPage />} />
       <Route path="/thank-you" element={<ThankYouPage />} />
       <Route path="/tickets/:ticketId" element={<TicketPage />} />
+      <Route path="/events/:eventId/scan" element={user ? <ScannerPage user={user} /> : <Navigate to="/signup" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
