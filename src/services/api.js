@@ -1,7 +1,11 @@
 const DEFAULT_API_BASE = '/api'
 
 export function getApiBaseUrl() {
-  return (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE).replace(/\/$/, '')
+  return (
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
+    DEFAULT_API_BASE
+  ).replace(/\/$/, '')
 }
 
 export function getStoredUser() {
