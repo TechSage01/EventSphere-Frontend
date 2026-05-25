@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext.jsx'
 
 /**
  * EventsPage — dark Luma-style dashboard
@@ -13,8 +14,17 @@ export default function EventsPage({ user = null }) {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [logoutPending, setLogoutPending] = useState(false)
+  const { logout } = useAuth()
   const navigate = useNavigate()
   const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
+
+  async function handleLogout() {
+    if (logoutPending) return
+    setLogoutPending(true)
+    await logout()
+    navigate('/signup', { replace: true })
+  }
 
   useEffect(() => {
     async function loadEvents() {
@@ -28,11 +38,11 @@ export default function EventsPage({ user = null }) {
             Authorization: `Bearer ${token}`,
           },
         })
-        const data = await res.json()
+        const payload = await res.json()
 
-        if (!res.ok) throw new Error(data.message || 'Failed to load events')
+        if (!res.ok) throw new Error(payload.message || 'Failed to load events')
 
-        setEvents(Array.isArray(data.events) ? data.events : [])
+        setEvents(Array.isArray(payload.data?.events) ? payload.data.events : [])
       } catch (err) {
         setError(err.message)
       } finally {
@@ -71,6 +81,10 @@ export default function EventsPage({ user = null }) {
 
           <button type="button" style={styles.createBtn} onClick={() => navigate('/events/new')}>
             Create Event
+          </button>
+
+          <button type="button" style={styles.logoutBtn} onClick={handleLogout} disabled={logoutPending}>
+            {logoutPending ? 'Signing out...' : 'Logout'}
           </button>
 
           {/* search */}
@@ -317,6 +331,18 @@ const styles = {
     textDecoration: 'none',
     cursor: 'pointer',
     transition: 'background .12s',
+  },
+  logoutBtn: {
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: '#f0f0f4',
+    background: 'rgba(248,113,113,0.13)',
+    border: '1px solid rgba(248,113,113,0.3)',
+    padding: '6px 12px',
+    borderRadius: 999,
+    cursor: 'pointer',
+    transition: 'opacity .12s',
+    fontFamily: "'DM Sans', system-ui, sans-serif",
   },
   iconBtn: {
     background: 'none',

@@ -44,11 +44,17 @@ export default function PublicEventPage() {
       setError('')
 
       try {
+<<<<<<< HEAD
         const eventRes = await fetch(`${API_BASE}/events/public/${eventId}`)
         const eventData = await eventRes.json()
         if (!eventRes.ok) throw new Error(eventData.message || 'Failed to load event')
+=======
+        const eventRes = await fetch(`/api/events/public/${eventId}`)
+        const payload = await eventRes.json()
+        if (!eventRes.ok) throw new Error(payload.message || 'Failed to load event')
+>>>>>>> 8fdb0489db2cb10ce1b6f539fe19613f2976eb8b
 
-        setEvent(eventData.event)
+        setEvent(payload.data?.event)
       } catch (err) {
         setError(err.message)
       } finally {
@@ -71,20 +77,20 @@ export default function PublicEventPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, ticketType: selectedTicketType }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || 'Failed to reserve ticket')
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload.message || 'Failed to reserve ticket')
 
-      if (!data.paymentRequired) {
+      if (!payload.data?.paymentRequired) {
         setSuccess('Your ticket has been created.')
-        navigate(`/tickets/${data.ticket.ticketId}?success=1`)
+        navigate(`/tickets/${payload.data?.ticket?.ticketId}?success=1`)
         return
       }
 
-      if (!data.redirect) {
+      if (!payload.data?.redirect) {
         throw new Error('Payment redirect is missing')
       }
 
-      window.location.href = data.redirect
+      window.location.href = payload.data.redirect
     } catch (err) {
       setError(err.message)
     } finally {
