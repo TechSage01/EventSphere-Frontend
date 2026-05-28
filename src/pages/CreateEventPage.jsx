@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { getApiBaseUrl } from '../services/api'
 import { useNavigate } from 'react-router-dom'
 
 /* ── tiny helpers ── */
@@ -26,7 +27,7 @@ const THEMES = [
 
 export default function CreateEventPage() {
   const navigate = useNavigate()
-  const API_BASE = '/api'
+  const API_BASE = getApiBaseUrl()
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
 
   useEffect(() => {
