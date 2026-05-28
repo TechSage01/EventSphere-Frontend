@@ -13,6 +13,14 @@ export default function TicketPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [verifying, setVerifying] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1024))
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   useEffect(() => {
     async function loadTicket() {
@@ -74,6 +82,9 @@ export default function TicketPage() {
   if (!ticket) return <Shell message="Ticket not found" actionLabel="Back to Events" onAction={() => navigate('/events')} />
 
   const ticketUrl = `${window.location.origin}/tickets/${ticket.ticketId}`
+  const isCompact = viewportWidth < 860
+  const isNarrow = viewportWidth < 560
+  const qrSize = viewportWidth < 420 ? 180 : viewportWidth < 560 ? 200 : 220
 
   return (
     <div style={styles.page}>
@@ -88,9 +99,11 @@ export default function TicketPage() {
           <h1 style={styles.title}>{event?.title || 'Event Ticket'}</h1>
           <p style={styles.subTitle}>{event?.startDate} · {event?.startTime}{event?.location ? ` · ${event.location}` : ''}</p>
 
-          <div style={styles.bodyGrid}>
+          <div style={isCompact ? styles.bodyGridStacked : styles.bodyGrid}>
             <div style={styles.qrPanel}>
-              <QRCodeSVG value={ticketUrl} size={220} bgColor="#ffffff" fgColor="#0b0b10" includeMargin />
+              <div style={styles.qrFrame}>
+                <QRCodeSVG value={ticketUrl} size={qrSize} bgColor="#ffffff" fgColor="#0b0b10" includeMargin />
+              </div>
               <div style={styles.ticketId}>{ticket.ticketId}</div>
             </div>
 
@@ -103,7 +116,7 @@ export default function TicketPage() {
               <div style={styles.metaRow}><span>Type</span><strong>{ticket.ticketType}</strong></div>
               <div style={styles.metaRow}><span>Status</span><strong>{ticket.status}</strong></div>
               <div style={styles.metaRow}><span>Price</span><strong>{ticket.price ? `₦${Number(ticket.price).toLocaleString()}` : 'Free'}</strong></div>
-              <button type="button" style={styles.primaryBtn} onClick={() => navigate(`/public/events/${ticket.eventId}`)}>
+              <button type="button" style={{ ...styles.primaryBtn, width: isNarrow ? '100%' : 'auto' }} onClick={() => navigate(`/public/events/${ticket.eventId}`)}>
                 Back to Event
               </button>
               {searchParams.get('success') === '1' && <div style={styles.success}>Ticket confirmed. Check your email for a copy.</div>}
@@ -131,21 +144,23 @@ function Shell({ message, actionLabel, onAction }) {
 }
 
 const styles = {
-  page: { minHeight: '100vh', background: 'linear-gradient(180deg, #101014 0%, #0b0b10 100%)', color: '#f1f1f5', fontFamily: "'DM Sans', system-ui, sans-serif" },
-  shell: { minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#101014', color: '#f1f1f5', fontFamily: "'DM Sans', system-ui, sans-serif" },
-  shellCard: { padding: 24, borderRadius: 18, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' },
+  page: { minHeight: '100vh', background: 'radial-gradient(circle at top, rgba(167,139,250,0.12), transparent 28%), linear-gradient(180deg, #101014 0%, #0b0b10 100%)', color: '#f1f1f5', fontFamily: "'DM Sans', system-ui, sans-serif" },
+  shell: { minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#101014', color: '#f1f1f5', fontFamily: "'DM Sans', system-ui, sans-serif", padding: '24px' },
+  shellCard: { width: 'min(100%, 420px)', padding: '24px 20px', borderRadius: 18, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' },
   shellTitle: { fontSize: 18, marginBottom: 12 },
-  main: { maxWidth: 920, margin: '0 auto', padding: '48px 28px' },
-  card: { padding: 22, borderRadius: 24, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)' },
+  main: { width: '100%', maxWidth: 1100, margin: '0 auto', padding: 'clamp(18px, 4vw, 48px) clamp(14px, 3vw, 28px)' },
+  card: { padding: 'clamp(18px, 3vw, 28px)', borderRadius: 28, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 24px 70px rgba(0,0,0,0.28)' },
   kicker: { color: '#a9a9b6', fontWeight: 700, marginBottom: 8 },
-  title: { fontSize: 'clamp(38px, 6vw, 60px)', lineHeight: 1, margin: 0, fontWeight: 900, letterSpacing: '-0.05em' },
-  subTitle: { color: '#cfd0da', marginTop: 12, marginBottom: 24 },
-  bodyGrid: { display: 'grid', gridTemplateColumns: '280px 1fr', gap: 18, alignItems: 'start' },
-  qrPanel: { display: 'grid', placeItems: 'center', padding: 18, borderRadius: 20, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' },
-  ticketId: { marginTop: 14, fontFamily: 'monospace', fontSize: 13, color: '#a9a9b6', wordBreak: 'break-all', textAlign: 'center' },
-  metaPanel: { padding: 10 },
-  metaRow: { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#d4d4de' },
-  primaryBtn: { marginTop: 16, border: 'none', borderRadius: 14, padding: '12px 16px', background: '#f1f1f5', color: '#111', fontWeight: 800, cursor: 'pointer' },
-  success: { marginTop: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(34,197,94,0.12)', color: '#86efac', fontWeight: 700 },
+  title: { fontSize: 'clamp(30px, 6vw, 60px)', lineHeight: 1.02, margin: 0, fontWeight: 900, letterSpacing: '-0.05em', overflowWrap: 'anywhere' },
+  subTitle: { color: '#cfd0da', marginTop: 12, marginBottom: 24, fontSize: 'clamp(14px, 2vw, 16px)', lineHeight: 1.5 },
+  bodyGrid: { display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) minmax(0, 1fr)', gap: 20, alignItems: 'start' },
+  bodyGridStacked: { display: 'grid', gridTemplateColumns: '1fr', gap: 20, alignItems: 'start' },
+  qrPanel: { display: 'grid', placeItems: 'center', padding: '18px 16px', borderRadius: 22, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' },
+  qrFrame: { display: 'grid', placeItems: 'center', padding: 12, borderRadius: 18, background: '#fff', maxWidth: '100%' },
+  ticketId: { marginTop: 14, fontFamily: 'monospace', fontSize: 12, color: '#a9a9b6', wordBreak: 'break-all', textAlign: 'center', lineHeight: 1.5 },
+  metaPanel: { padding: '4px 2px 0' },
+  metaRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#d4d4de', flexWrap: 'wrap' },
+  primaryBtn: { marginTop: 16, border: 'none', borderRadius: 14, padding: '12px 16px', background: '#f1f1f5', color: '#111', fontWeight: 800, cursor: 'pointer', transition: 'transform 0.2s ease, opacity 0.2s ease' },
+  success: { marginTop: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(34,197,94,0.12)', color: '#86efac', fontWeight: 700, lineHeight: 1.5 },
   notice: { marginBottom: 14, padding: '12px 14px', borderRadius: 14, background: 'rgba(59,130,246,0.12)', color: '#93c5fd', fontWeight: 700, lineHeight: 1.5 },
 }

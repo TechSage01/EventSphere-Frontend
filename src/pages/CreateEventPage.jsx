@@ -150,7 +150,12 @@ export default function CreateEventPage() {
       })
       const contentType = res.headers.get('content-type') || ''
       const data = contentType.includes('application/json') ? await res.json() : { message: await res.text() }
-      if (!res.ok) throw new Error(data.message || 'Failed to create event')
+      if (!res.ok) {
+        console.error('Create event failed', { status: res.status, statusText: res.statusText, data, headers: Object.fromEntries(res.headers) })
+        // surface a clear message for debugging in the browser
+        alert(`Failed to create event: ${res.status} ${res.statusText}\n${data?.message || JSON.stringify(data)}`)
+        throw new Error(data.message || `Failed to create event: ${res.status}`)
+      }
 
       const createdEvent = data.event || data.data?.event || data.data || data
       if (!createdEvent?.id) {
@@ -160,6 +165,7 @@ export default function CreateEventPage() {
       navigate(`/events/${createdEvent.id}`)
     } catch (err) {
       console.error(err)
+      try { alert(err.message || 'Failed to create event') } catch (e) {}
     } finally {
       setSubmitting(false)
     }
