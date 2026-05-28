@@ -14,3 +14,9 @@ createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </StrictMode>,
 )
+
+// {
+//   "rewrites": [
+//     { "source": "/(.*)", "destination": "/index.html" }
+//   ]
+// }
