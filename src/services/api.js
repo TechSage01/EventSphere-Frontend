@@ -1,11 +1,21 @@
 const DEFAULT_API_BASE = '/api'
 
+function normalizeApiBaseUrl(rawValue) {
+  const value = (rawValue || DEFAULT_API_BASE).replace(/\/$/, '')
+
+  if (/^https?:\/\//i.test(value) && !/\/api(\/|$)/i.test(value)) {
+    return `${value}/api`
+  }
+
+  return value
+}
+
 export function getApiBaseUrl() {
-  return (
+  return normalizeApiBaseUrl(
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_API_URL ||
     DEFAULT_API_BASE
-  ).replace(/\/$/, '')
+  )
 }
 
 export function getStoredUser() {
