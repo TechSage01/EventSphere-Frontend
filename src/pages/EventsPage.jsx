@@ -207,10 +207,19 @@ function EventCard({ ev, onOpen, responsive = null }) {
   const timeLabel = [ev.startTime, ev.endTime].filter(Boolean).join(' - ')
   const statusLabel = ev.isPublic ? 'Public' : 'Private'
 
+  // Debug log
+  if (ev.coverImage) {
+    console.log('Event with cover:', { title: ev.title, coverImage: ev.coverImage.slice(0, 100) })
+  }
+
   return (
     <div style={{ ...styles.card, ...(responsive?.card || {}) }} onClick={onOpen} role="button" tabIndex={0}>
-      <div style={{ ...styles.cardCover, ...(responsive?.cardCover || {}), background: ev.color || '#2a2a2e' }}>
-        <span style={{ fontSize: 36 }}>{ev.emoji || '📅'}</span>
+      <div style={{ ...styles.cardCover, ...(responsive?.cardCover || {}), position: 'relative', overflow: 'hidden' }}>
+        {ev.coverImage ? (
+          <img src={ev.coverImage} alt={ev.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <span style={{ fontSize: 36 }}>{ev.emoji || '📅'}</span>
+        )}
       </div>
       <div style={{ ...styles.cardBody, ...(responsive?.cardBody || {}) }}>
         <p style={{ ...styles.cardDate, ...(responsive?.cardDate || {}) }}>{dateLabel}</p>

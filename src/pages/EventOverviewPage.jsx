@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getApiBaseUrl } from '../services/api.js'
+import { useAuth } from '../context/AuthContext.jsx'
 
 const themeMap = {
   minimal:  { bg: ['#10262b', '#081722'], accent: '#5eead4' },
@@ -16,6 +17,7 @@ export default function EventOverviewPage({ user = null }) {
   const { eventId } = useParams()
   const navigate    = useNavigate()
   const API_BASE = getApiBaseUrl()
+  const { logout } = useAuth()
 
   const [event,           setEvent]           = useState(null)
   const [loading,         setLoading]         = useState(true)
@@ -30,6 +32,8 @@ export default function EventOverviewPage({ user = null }) {
   const [hostForm,        setHostForm]        = useState({ name:'', email:'', role:'Co-host' })
   const [addingHost,      setAddingHost]      = useState(false)
   const [toast,           setToast]           = useState('')
+  const [loggingOut,      setLoggingOut]      = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   // ── Window Width Hook for Sleek Responsiveness ──
   const [width, setWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
@@ -38,6 +42,18 @@ export default function EventOverviewPage({ user = null }) {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  async function handleLogout() {
+    if (loggingOut) return
+    setLoggingOut(true)
+    try {
+      await logout()
+      navigate('/signup', { replace: true })
+    } finally {
+      setLoggingOut(false)
+      setShowLogoutConfirm(false)
+    }
+  }
 
   const isTablet = width <= 880
   const isMobile = width <= 600
@@ -264,13 +280,33 @@ export default function EventOverviewPage({ user = null }) {
           <span style={s.logo}>✦</span>
           {!isSmallMobile && <span style={s.brand}>EventsNest</span>}
         </div>
-        <div style={{ display: 'flex', gap: '6px' }}>
+        <div style={{ display: 'flex', gap: '6px', position: 'relative', alignItems: 'center' }}>
           <button style={s.eventPageBtn} onClick={() => navigate(`/public/events/${event.id}`)}>
             {isMobile ? 'Page ↗' : 'Event Page ↗'}
           </button>
           <button style={{...s.adminBtn, marginLeft: isMobile ? 0 : 10}} onClick={() => navigate(`/events/${event.id}/admin`)}>
             {isMobile ? 'Admin' : 'Admin ↗'}
           </button>
+          <button
+            style={{...s.logoutBtn, marginLeft: isMobile ? 0 : 10, opacity: loggingOut ? 0.7 : 1}}
+            onClick={() => setShowLogoutConfirm(v => !v)}
+            disabled={loggingOut}
+          >
+            Logout
+          </button>
+          {showLogoutConfirm && !loggingOut && (
+            <div style={{ ...s.logoutConfirm, top: isMobile ? 54 : 54 }}>
+              <div style={s.logoutConfirmText}>Are you sure you want to log out?</div>
+              <div style={s.logoutConfirmActions}>
+                <button type="button" style={s.logoutCancelBtn} onClick={() => setShowLogoutConfirm(false)}>
+                  Cancel
+                </button>
+                <button type="button" style={s.logoutConfirmBtn} onClick={handleLogout}>
+                  Log out
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -775,6 +811,12 @@ const s = {
   brand:       { fontSize:16, fontWeight:700, letterSpacing:'-.3px' },
   eventPageBtn:{ background:'rgba(255,255,255,0.07)', color:'#ccc', border:'1px solid rgba(255,255,255,0.08)', borderRadius:999, padding:'8px 16px', fontWeight:600, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
   adminBtn:    { background:'rgba(167,139,250,0.16)', color:'#ddd6fe', border:'1px solid rgba(167,139,250,0.24)', borderRadius:999, padding:'8px 16px', fontWeight:700, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  logoutBtn:   { background:'rgba(248,113,113,0.14)', color:'#fecaca', border:'1px solid rgba(248,113,113,0.24)', borderRadius:999, padding:'8px 16px', fontWeight:700, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  logoutConfirm: { position:'absolute', right:0, top:54, minWidth:280, maxWidth:'calc(100vw - 24px)', background:'#17171c', border:'1px solid rgba(255,255,255,0.10)', borderRadius:16, padding:16, boxShadow:'0 20px 50px rgba(0,0,0,0.45)', zIndex:80 },
+  logoutConfirmText: { fontSize:14, color:'#ececf0', fontWeight:600, lineHeight:1.4, marginBottom:12 },
+  logoutConfirmActions: { display:'flex', gap:10, justifyContent:'flex-end', flexWrap:'wrap' },
+  logoutCancelBtn: { background:'rgba(255,255,255,0.06)', color:'#ddd', border:'1px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'8px 12px', fontWeight:700, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  logoutConfirmBtn: { background:'rgba(248,113,113,0.18)', color:'#fecaca', border:'1px solid rgba(248,113,113,0.28)', borderRadius:10, padding:'8px 12px', fontWeight:800, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
 
   /* layout */
   main:     { maxWidth:1160, margin:'0 auto' },

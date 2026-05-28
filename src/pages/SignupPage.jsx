@@ -75,11 +75,14 @@ export default function SignupPage() {
     }
   }
 
+  // Layers the overrides sequentially as the screen gets narrower
   const styles = {
     ...baseStyles,
     ...(viewportWidth <= 900 ? tabletStyles : {}),
     ...(viewportWidth <= 720 ? mobileStyles : {}),
+    ...(viewportWidth <= 655 ? narrowMobileStyles : {}),
     ...(viewportWidth <= 420 ? compactStyles : {}),
+    ...(viewportWidth <= 360 ? tinyMobileStyles : {}),
   }
 
   return (
@@ -221,10 +224,12 @@ const baseStyles = {
     gap: 10,
     background: 'transparent',
     color: '#f5f0e8',
+    border: 'none',
     padding: 0,
     fontSize: 18,
     fontWeight: 700,
     letterSpacing: '-0.03em',
+    cursor: 'pointer',
   },
   brandMark: {
     display: 'inline-flex',
@@ -244,6 +249,7 @@ const baseStyles = {
     padding: '10px 16px',
     fontSize: 14,
     fontWeight: 600,
+    cursor: 'pointer',
   },
   hero: {
     position: 'relative',
@@ -461,10 +467,48 @@ const mobileStyles = {
   },
 }
 
+// --- NEW RESPONSIVE BLOCKS START HERE ---
+
+// Breakpoint for 655px downwards
+const narrowMobileStyles = {
+  shell: {
+    padding: '12px 12px 24px',
+  },
+  title: {
+    fontSize: '2.2rem', // Prevents clamp layout shifts
+    lineHeight: '1.1',
+    letterSpacing: '-0.04em',
+  },
+  sub: {
+    fontSize: '14px',
+    lineHeight: '1.6',
+    marginTop: '12px',
+  },
+  featureRow: {
+    // Splits features into a tight layout so it doesn't take too vertical space
+    gridTemplateColumns: '1fr', 
+    gap: '8px',
+    marginTop: '20px',
+  },
+  featureCard: {
+    padding: '12px 14px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  featureValue: {
+    marginBottom: 0,
+    fontSize: '18px',
+  },
+}
+
+// Overrides for 420px downwards (Your existing setup optimized)
 const compactStyles = {
   topbar: {
     flexDirection: 'column',
     alignItems: 'stretch',
+    gap: '10px',
+    padding: '12px',
   },
   brand: {
     justifyContent: 'center',
@@ -472,9 +516,32 @@ const compactStyles = {
   topLink: {
     width: '100%',
     textAlign: 'center',
+    padding: '8px 12px',
   },
   card: {
-    padding: 18,
-    borderRadius: 20,
+    padding: '18px',
+    borderRadius: '20px',
+  },
+  cardTitle: {
+    fontSize: '20px',
+  },
+}
+
+// Critical breakpoint for 360px down to 320px
+const tinyMobileStyles = {
+  title: {
+    fontSize: '1.8rem',
+  },
+  card: {
+    padding: '14px',
+    borderRadius: '16px',
+  },
+  input: {
+    padding: '12px',
+    fontSize: '14px',
+  },
+  btn: {
+    padding: '12px 0',
+    fontSize: '13px',
   },
 }
