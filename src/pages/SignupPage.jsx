@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiRequest } from '../services/api.js'
+import { apiRequest, getFriendlyErrorMessage } from '../services/api.js'
 
 const benefits = [
   { value: '01', label: 'Fast one-time code' },
@@ -69,7 +69,7 @@ export default function SignupPage() {
         })
       }, 800)
     } catch (err) {
-      setError(err.message || 'Failed to send verification code')
+      setError(getFriendlyErrorMessage(err))
     } finally {
       setLoading(false)
     }

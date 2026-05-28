@@ -21,6 +21,36 @@ export function getStoredToken() {
   return localStorage.getItem('es_token') || ''
 }
 
+export function getFriendlyErrorMessage(error) {
+  const message = String(error?.message || error || '').trim()
+  const lower = message.toLowerCase()
+
+  if (!message) return 'Something went wrong. Please try again.'
+  if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('network request failed')) {
+    return 'Network problem. Please check your connection and try again.'
+  }
+  if (lower.includes('resend_api_key is missing') || lower.includes('from_email is missing')) {
+    return 'Email service is not set up yet on the server.'
+  }
+  if (lower.includes('failed to send verification code')) {
+    return 'We could not send the code right now. Please try again shortly.'
+  }
+  if (lower.includes('unauthorized')) {
+    return 'Your session has expired. Please sign in again.'
+  }
+  if (lower.includes('forbidden')) {
+    return 'You do not have permission to do that.'
+  }
+  if (lower.includes('not found')) {
+    return 'We could not find that item.'
+  }
+  if (lower.includes('request failed')) {
+    return 'The server did not respond properly. Please try again.'
+  }
+
+  return message
+}
+
 export function persistSession(user, token) {
   if (user) {
     localStorage.setItem('es_user', JSON.stringify(user))
@@ -67,15 +97,20 @@ export async function apiRequest(path, options = {}) {
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${baseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
-    ...options,
-    headers,
-  })
+  let response
+  try {
+    response = await fetch(`${baseUrl}${path.startsWith('/') ? path : `/${path}`}`, {
+      ...options,
+      headers,
+    })
+  } catch (error) {
+    throw new Error(getFriendlyErrorMessage(error))
+  }
 
   const payload = await readResponse(response)
 
   if (!response.ok || payload.success === false) {
-    throw new Error(payload.message || 'Request failed')
+    throw new Error(getFriendlyErrorMessage(payload.message || 'Request failed'))
   }
 
   return payload

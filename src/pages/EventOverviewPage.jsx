@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { getApiBaseUrl } from '../services/api.js'
 
 const themeMap = {
   minimal:  { bg: ['#10262b', '#081722'], accent: '#5eead4' },
@@ -8,18 +9,20 @@ const themeMap = {
   ocean:    { bg: ['#0a1628', '#061a2e'], accent: '#38bdf8' },
   forest:   { bg: ['#0d2110', '#0a1a0d'], accent: '#4ade80' },
   rose:     { bg: ['#2d0a1a', '#1a0a1a'], accent: '#fb7185' },
+  black:    { bg: ['#000000', '#060606'], accent: '#ffffff' },
 }
 
 export default function EventOverviewPage({ user = null }) {
   const { eventId } = useParams()
   const navigate    = useNavigate()
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
+  const API_BASE = getApiBaseUrl()
 
   const [event,           setEvent]           = useState(null)
   const [loading,         setLoading]         = useState(true)
   const [error,           setError]           = useState('')
   const [editing,         setEditing]         = useState(false)
   const [editForm,        setEditForm]        = useState(null)
+  const [editErrors,      setEditErrors]      = useState({ ticketVipPrice: '', ticketTablePrice: '' })
   const [savingEvent,     setSavingEvent]     = useState(false)
   const [savingVis,       setSavingVis]       = useState(false)
   const [inviteEmails,    setInviteEmails]    = useState('')
@@ -27,6 +30,18 @@ export default function EventOverviewPage({ user = null }) {
   const [hostForm,        setHostForm]        = useState({ name:'', email:'', role:'Co-host' })
   const [addingHost,      setAddingHost]      = useState(false)
   const [toast,           setToast]           = useState('')
+
+  // ── Window Width Hook for Sleek Responsiveness ──
+  const [width, setWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
+  useEffect(() => {
+    const handleResize = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  const isTablet = width <= 880
+  const isMobile = width <= 600
+  const isSmallMobile = width <= 400
 
   function showToast(msg) {
     setToast(msg)
@@ -56,8 +71,22 @@ export default function EventOverviewPage({ user = null }) {
       startTime: event.startTime || '', endDate: event.endDate || '',
       endTime: event.endTime || '', location: event.location || '',
       coverImage: event.coverImage || '',
+      ticketVipPrice: event?.ticketPrices?.vip ?? '',
+      ticketTablePrice: event?.ticketPrices?.table ?? '',
     })
   }, [event])
+
+  function formatPriceInput(val) {
+    const cleaned = String(val || '').replace(/[^0-9.]/g, '').trim()
+    if (!cleaned) return ''
+    const n = Math.round(Number(cleaned))
+    return Number.isFinite(n) ? String(n) : ''
+  }
+
+  function validateEditPrice(field, value) {
+    const cleaned = String(value || '').replace(/[^0-9.]/g, '').trim()
+    setEditErrors(prev => ({ ...prev, [field]: (cleaned === '' || !isNaN(Number(cleaned))) ? '' : 'Enter a valid number' }))
+  }
 
   /* ── actions ── */
   async function handleSaveEvent() {
@@ -65,10 +94,19 @@ export default function EventOverviewPage({ user = null }) {
     setSavingEvent(true)
     try {
       const token = localStorage.getItem('es_token')
+      const payloadBody = { ...editForm }
+      // construct ticketPrices if provided
+      const vip = parseFloat(String(editForm.ticketVipPrice || '').trim())
+      const table = parseFloat(String(editForm.ticketTablePrice || '').trim())
+      const tp = {}
+      if (!Number.isNaN(vip) && vip > 0) tp.vip = vip
+      if (!Number.isNaN(table) && table > 0) tp.table = table
+      payloadBody.ticketPrices = Object.keys(tp).length ? tp : null
+
       const res = await fetch(`${API_BASE}/events/${eventId}`, {
         method: 'PATCH',
         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(payloadBody),
       })
       const payload = await res.json()
       if (!res.ok) throw new Error(payload.message)
@@ -128,8 +166,55 @@ export default function EventOverviewPage({ user = null }) {
 
   async function handleCopyLink() {
     const url = `${window.location.origin}/public/events/${event?.id}`
-    try { await navigator.clipboard.writeText(url); showToast('Link copied!') }
-    catch { showToast('Copy from address bar.') }
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: event?.title || 'EventsNest event',
+          text: `Check out ${event?.title || 'this event'}`,
+          url,
+        })
+        showToast('Share sheet opened.')
+        return
+      }
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url)
+        showToast('Link copied!')
+        return
+      }
+
+      const fallbackInput = document.createElement('input')
+      fallbackInput.value = url
+      fallbackInput.setAttribute('readonly', 'true')
+      fallbackInput.style.position = 'fixed'
+      fallbackInput.style.left = '-9999px'
+      document.body.appendChild(fallbackInput)
+      fallbackInput.select()
+      document.execCommand('copy')
+      document.body.removeChild(fallbackInput)
+      showToast('Link copied!')
+    } catch {
+      showToast(url)
+    }
+  }
+
+  function handleSocialShare(platform) {
+    const url = `${window.location.origin}/public/events/${event?.id}`
+    const shareText = `Check out ${event?.title || 'this event'}`
+    const encodedUrl = encodeURIComponent(url)
+    const encodedText = encodeURIComponent(shareText)
+
+    const shareTargets = {
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+      x: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+      chat: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${url}`)}`,
+    }
+
+    const targetUrl = shareTargets[platform]
+    if (!targetUrl) return
+
+    window.open(targetUrl, '_blank', 'noopener,noreferrer')
   }
 
   async function handleOneClickRsvp() {
@@ -161,7 +246,6 @@ export default function EventOverviewPage({ user = null }) {
     }
   }
 
-  /* ── loading / error shells ── */
   if (loading)           return <LoadingShell />
   if (error && !event)   return <ErrorShell message={error} onBack={() => navigate('/events')} />
   if (!event)            return <ErrorShell message="Event not found" onBack={() => navigate('/events')} />
@@ -169,39 +253,40 @@ export default function EventOverviewPage({ user = null }) {
   const theme        = themeMap[event.theme] || themeMap.minimal
   const rsvpCount    = event.rsvpCount || (Array.isArray(event.rsvps) ? event.rsvps.length : 0)
   const invitedGuests= Array.isArray(event.invitedGuests) ? event.invitedGuests : []
-  const publicUrl    = `${window.location.origin}/public/events/${event.id}`
   const shortUrl     = `eventsnest.com/${event.id?.slice(0,8) || 'preview'}`
 
   return (
     <div style={{ ...s.page, background:'#111114' }}>
 
-      {/* ── sticky topbar ── */}
-      <header style={s.topbar}>
+      {/* ── topbar ── */}
+      <header style={{...s.topbar, padding: isMobile ? '0 16px' : '0 28px'}}>
         <div style={s.topbarLeft}>
           <span style={s.logo}>✦</span>
-          <span style={s.brand}>EventsNest</span>
+          {!isSmallMobile && <span style={s.brand}>EventsNest</span>}
         </div>
-        <button style={s.eventPageBtn} onClick={() => navigate(`/public/events/${event.id}`)}>
-          Event Page ↗
-        </button>
-        <button style={s.adminBtn} onClick={() => navigate(`/events/${event.id}/admin`)}>
-          Admin ↗
-        </button>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button style={s.eventPageBtn} onClick={() => navigate(`/public/events/${event.id}`)}>
+            {isMobile ? 'Page ↗' : 'Event Page ↗'}
+          </button>
+          <button style={{...s.adminBtn, marginLeft: isMobile ? 0 : 10}} onClick={() => navigate(`/events/${event.id}/admin`)}>
+            {isMobile ? 'Admin' : 'Admin ↗'}
+          </button>
+        </div>
       </header>
 
-      <main style={s.main}>
+      <main style={{...s.main, padding: isMobile ? '16px 16px 60px' : '28px 24px 80px'}}>
 
         {/* breadcrumb */}
         <div style={s.breadcrumb}>
           <span style={s.breadcrumbLink} onClick={() => navigate('/events')}>Personal</span>
           <span style={s.breadcrumbSep}>›</span>
-          <span>{event.title}</span>
+          <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{event.title}</span>
         </div>
 
         {/* hero row */}
-        <div style={s.heroRow}>
+        <div style={{...s.heroRow, flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'flex-start'}}>
           <div>
-            <h1 style={s.heroTitle}>{event.title}</h1>
+            <h1 style={{...s.heroTitle, fontSize: isSmallMobile ? '28px' : isMobile ? '34px' : 'clamp(32px,4vw,52px)'}}>{event.title}</h1>
             <div style={s.chips}>
               <Chip>{fmtDateLong(event.startDate)}</Chip>
               <Chip>{fmtTimeRange(event.startTime, event.endTime)}</Chip>
@@ -209,21 +294,21 @@ export default function EventOverviewPage({ user = null }) {
               <Chip>{rsvpCount} RSVPs</Chip>
             </div>
           </div>
-          <div style={s.heroActions}>
-            <Btn onClick={() => setEditing(v=>!v)}>{editing ? 'Close' : 'Edit Event'}</Btn>
-            <Btn ghost onClick={() => navigate(`/events/${event.id}/admin`)}>Admin</Btn>
+          <div style={{...s.heroActions, marginTop: isMobile ? 8 : 0, width: isMobile ? '100%' : 'auto'}}>
+            <Btn onClick={() => setEditing(v=>!v)} style={{flex: isMobile ? 1 : 'unset'}}>{editing ? 'Close' : 'Edit Event'}</Btn>
+            <Btn ghost onClick={() => navigate(`/events/${event.id}/admin`)} style={{flex: isMobile ? 1 : 'unset'}}>Admin</Btn>
           </div>
         </div>
 
         {/* tabs */}
-        <div style={s.tabs}>
+        <div style={{...s.tabs, gap: isMobile ? 14 : 24, overflowX: 'auto', whiteSpace: 'nowrap', width: '100%', scrollbarWidth: 'none'}}>
           {['Overview','Guests','Registration','Blasts','Insights'].map((t,i) => (
             <button key={t} style={{ ...s.tab, ...(i===0 ? s.tabActive : {}) }}>{t}</button>
           ))}
         </div>
 
-        {/* quick action cards — exactly like screenshot */}
-        <div style={s.actionRow}>
+        {/* quick action cards */}
+        <div style={{...s.actionRow, gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2, 1fr)' : 'repeat(3,1fr)'}}>
           <ActionCard icon="✉" label="Invite Guests"  color="#3b82f6"
             onClick={() => document.getElementById('invite-section')?.scrollIntoView({behavior:'smooth'})} />
           <ActionCard icon="▣" label="Send a Blast"   color="#a855f7"
@@ -235,35 +320,34 @@ export default function EventOverviewPage({ user = null }) {
         {toast && <div style={s.toast}>{toast}</div>}
         {error && <div style={s.errorBanner}>{error}</div>}
 
-        {/* ── two-column body ── */}
-        <div style={s.cols}>
+        {/* ── columns container ── */}
+        <div style={{...s.cols, gridTemplateColumns: isTablet ? '1fr' : '1fr 360px'}}>
 
           {/* ══ LEFT ══ */}
           <div style={s.leftCol}>
 
-            {/* event preview card — the main card from screenshot */}
+            {/* event preview card */}
             <div style={s.previewCard}>
-              {/* cover + info row */}
-              <div style={s.previewTop}>
+              <div style={{...s.previewTop, flexDirection: isMobile ? 'column' : 'row'}}>
                 {/* cover square */}
-                <div style={s.coverSquare}>
+                <div style={{...s.coverSquare, width: isMobile ? '100%' : 220, height: isMobile ? 240 : 'auto', minHeight: isMobile ? 'unset' : 220}}>
                   {event.coverImage
                     ? <img src={event.coverImage} alt={event.title} style={s.coverImg}/>
                     : <CoverPlaceholder accent={theme.accent}/>
                   }
                 </div>
 
-                {/* right of cover */}
+                {/* right / bottom of cover */}
                 <div style={s.previewInfo}>
                   <h2 style={s.previewTitle}>{event.title}</h2>
 
                   {/* date row */}
-                  <div style={s.previewDateRow}>
+                  <div style={{...s.previewDateRow, flexDirection: isSmallMobile ? 'column' : 'row', alignItems: isSmallMobile ? 'flex-start' : 'center'}}>
                     <div style={s.dateBadge}>
                       <span style={s.dateMonth}>{getMonth(event.startDate).toUpperCase()}</span>
                       <span style={s.dateDay}>{getDay(event.startDate)}</span>
                     </div>
-                    <div>
+                    <div style={{marginTop: isSmallMobile ? 8 : 0}}>
                       <div style={s.dateLabel}>{fmtDateLong(event.startDate)}</div>
                       <div style={s.timeLabel}>{fmtTimeRange(event.startTime, event.endTime)}</div>
                     </div>
@@ -272,9 +356,7 @@ export default function EventOverviewPage({ user = null }) {
                   {/* location */}
                   <div style={s.locationRow}>
                     <span style={s.locationIcon}>📍</span>
-                    <span style={s.locationText}>
-                      {event.location || 'Register to See Address'}
-                    </span>
+                    <span style={s.locationText}>{event.location || 'Register to See Address'}</span>
                   </div>
 
                   {/* hosted by */}
@@ -305,34 +387,50 @@ export default function EventOverviewPage({ user = null }) {
               </div>
 
               {/* share bar */}
-              <div style={s.shareBar}>
+              <div style={{...s.shareBar, flexDirection: isSmallMobile ? 'column' : 'row', height: isSmallMobile ? 'auto' : 48, padding: isSmallMobile ? '12px' : '0 16px', gap: isSmallMobile ? 8 : 0}}>
                 <span style={s.shareUrl}>{shortUrl}</span>
-                <button style={s.shareArrow} onClick={() => navigate(`/public/events/${event.id}`)}>↗</button>
-                <div style={s.shareSep}/>
-                <button style={s.copyBtn} onClick={handleCopyLink}>COPY</button>
+                <div style={{display: 'flex', alignItems: 'center', width: isSmallMobile ? '100%' : 'auto', justifyContent: 'space-between', gap: 12}}>
+                  <button style={s.shareArrow} onClick={() => navigate(`/public/events/${event.id}`)}>↗</button>
+                  {!isSmallMobile && <div style={s.shareSep}/>}
+                  <button style={{...s.copyBtn, width: isSmallMobile ? '100%' : 'auto'}} onClick={handleCopyLink}>COPY</button>
+                </div>
               </div>
             </div>
 
-            {/* bottom action bar — exactly like screenshot */}
-            <div style={s.bottomBar}>
-              <div style={s.socialRow}>
+            {/* bottom action bar */}
+            <div style={{...s.bottomBar, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 16 : 0, alignItems: isMobile ? 'stretch' : 'center', padding: isMobile ? '16px' : '0 24px'}}>
+              <div style={{...s.socialRow, justifyContent: isMobile ? 'center' : 'flex-start'}}>
                 <span style={s.shareLabel}>Share Event</span>
-                {['𝕗','𝕏','in','💬'].map(ic=>(
-                  <button key={ic} style={s.socialBtn}>{ic}</button>
+                {[
+                  { icon: '𝕗', platform: 'facebook', label: 'Share on Facebook' },
+                  { icon: '𝕏', platform: 'x', label: 'Share on X' },
+                  { icon: 'in', platform: 'linkedin', label: 'Share on LinkedIn' },
+                  { icon: '💬', platform: 'chat', label: 'Share via chat' },
+                ].map(item => (
+                  <button
+                    key={item.platform}
+                    type="button"
+                    style={s.socialBtn}
+                    aria-label={item.label}
+                    title={item.label}
+                    onClick={() => handleSocialShare(item.platform)}
+                  >
+                    {item.icon}
+                  </button>
                 ))}
               </div>
-              <div style={s.bottomActions}>
-                <button style={s.bottomBtn} onClick={() => setEditing(v=>!v)}>
+              <div style={{...s.bottomActions, justifyContent: isMobile ? 'stretch' : 'flex-end'}}>
+                <button style={{...s.bottomBtn, flex: isMobile ? 1 : 'unset'}} onClick={() => setEditing(v=>!v)}>
                   {editing ? 'Close Editor' : 'Edit Event'}
                 </button>
-                <button style={s.bottomBtn}>Change Photo</button>
+                <button style={{...s.bottomBtn, flex: isMobile ? 1 : 'unset'}}>Change Photo</button>
               </div>
             </div>
 
-            {/* ── edit section ── */}
+            {/* edit section */}
             {editing && editForm && (
-              <Section title="Edit Event" sub="Update title, dates, location and cover.">
-                <div style={s.editGrid}>
+              <Section title="Edit Event" sub="Update details.">
+                <div style={{...s.editGrid, gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)'}}>
                   {[
                     { label:'Title',      key:'title',     type:'text' },
                     { label:'Location',   key:'location',  type:'text' },
@@ -351,6 +449,22 @@ export default function EventOverviewPage({ user = null }) {
                       />
                     </label>
                   ))}
+                  <label style={{ ...s.editField, gridColumn: '1/-1' }}>
+                    <span style={s.editLabel}>VIP Price (₦)</span>
+                      <input type="text" inputMode="numeric" min="0" step="0.01" value={editForm.ticketVipPrice}
+                        onChange={e => { setEditForm(p => ({ ...p, ticketVipPrice: e.target.value })); validateEditPrice('ticketVipPrice', e.target.value) }}
+                        onBlur={() => { setEditForm(p => ({ ...p, ticketVipPrice: formatPriceInput(p.ticketVipPrice) })); validateEditPrice('ticketVipPrice', editForm.ticketVipPrice) }}
+                        style={s.editInput} placeholder="Leave empty to disable VIP" />
+                      {editErrors.ticketVipPrice && <div style={s.inputError}>{editErrors.ticketVipPrice}</div>}
+                  </label>
+                  <label style={{ ...s.editField, gridColumn: '1/-1' }}>
+                    <span style={s.editLabel}>Table (4) Price (₦)</span>
+                    <input type="text" inputMode="numeric" min="0" step="0.01" value={editForm.ticketTablePrice}
+                      onChange={e => { setEditForm(p => ({ ...p, ticketTablePrice: e.target.value })); validateEditPrice('ticketTablePrice', e.target.value) }}
+                      onBlur={() => { setEditForm(p => ({ ...p, ticketTablePrice: formatPriceInput(p.ticketTablePrice) })); validateEditPrice('ticketTablePrice', editForm.ticketTablePrice) }}
+                      style={s.editInput} placeholder="Leave empty to disable Table" />
+                    {editErrors.ticketTablePrice && <div style={s.inputError}>{editErrors.ticketTablePrice}</div>}
+                  </label>
                   <label style={{ ...s.editField, gridColumn:'1/-1' }}>
                     <span style={s.editLabel}>Cover Image</span>
                     <input type="file" accept="image/*" style={s.fileInput}
@@ -372,9 +486,9 @@ export default function EventOverviewPage({ user = null }) {
               </Section>
             )}
 
-            {/* ── invite section ── */}
+            {/* invite section */}
             <div id="invite-section">
-              <Section title="Invitations" sub="Invite guests via email." action={<Btn small>+ Invite Guests</Btn>}>
+              <Section title="Invitations" sub="Invite guests via email.">
                 <textarea
                   placeholder="Enter emails separated by commas or new lines"
                   value={inviteEmails}
@@ -388,12 +502,12 @@ export default function EventOverviewPage({ user = null }) {
                   </Btn>
                 </div>
                 {invitedGuests.length === 0
-                  ? <EmptyBlock title="No Invitations Sent" body="Invite subscribers, contacts and past guests." />
+                  ? <EmptyBlock title="No Invitations Sent" body="Invite contacts and past guests." />
                   : <div style={s.inviteList}>
                       {invitedGuests.map(g=>(
                         <div key={g.email+g.sentAt} style={s.inviteItem}>
                           <span>✉</span>
-                          <span style={{flex:1}}>{g.email}</span>
+                          <span style={{flex:1, overflow:'hidden', textOverflow:'ellipsis'}}>{g.email}</span>
                           <span style={s.sentAt}>{fmtDate(g.sentAt)}</span>
                         </div>
                       ))}
@@ -402,8 +516,8 @@ export default function EventOverviewPage({ user = null }) {
               </Section>
             </div>
 
-            {/* ── hosts ── */}
-            <Section title="Hosts" action={<Btn small onClick={()=>document.getElementById('host-form')?.scrollIntoView({behavior:'smooth'})}>+ Add Host</Btn>}>
+            {/* hosts section */}
+            <Section title="Hosts">
               <div style={s.hostCard}>
                 <div style={s.hostAvatarLg}>{initials(event.hostName || user?.name)}</div>
                 <div style={s.hostCardBody}>
@@ -411,13 +525,13 @@ export default function EventOverviewPage({ user = null }) {
                     <strong>{event.hostName || user?.name || 'Creator'}</strong>
                     <span style={s.badge}>Creator</span>
                   </div>
-                  <div style={s.hostCardEmail}>{event.hostEmail || user?.email || ''}</div>
+                  <div style={{...s.hostCardEmail, overflow:'hidden', textOverflow:'ellipsis'}}>{event.hostEmail || user?.email || ''}</div>
                 </div>
               </div>
 
               <div id="host-form" tabIndex={-1} style={s.hostComposer}>
                 <div style={s.hostComposerTitle}>Add a co-host</div>
-                <div style={s.hostComposerGrid}>
+                <div style={{...s.hostComposerGrid, gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(120px, 1fr))'}}>
                   {['name','email','role'].map(k=>(
                     <input key={k}
                       value={hostForm[k]}
@@ -434,8 +548,8 @@ export default function EventOverviewPage({ user = null }) {
               </div>
             </Section>
 
-            {/* ── visibility ── */}
-            <Section title="Visibility & Discovery" sub="Control how people find your event.">
+            {/* visibility section */}
+            <Section title="Visibility & Discovery">
               <div style={s.visCard}>
                 <div style={s.visTop}>
                   <div>
@@ -446,16 +560,16 @@ export default function EventOverviewPage({ user = null }) {
                     {event.isPublic ? '🌐 Public' : '🔒 Private'}
                   </span>
                 </div>
-                <div style={s.visActions}>
-                  <Btn onClick={handleToggleVisibility} disabled={savingVis}>
+                <div style={{...s.visActions, flexDirection: isSmallMobile ? 'column' : 'row'}}>
+                  <Btn onClick={handleToggleVisibility} disabled={savingVis} style={{width: isSmallMobile ? '100%' : 'auto'}}>
                     {savingVis ? 'Updating…' : event.isPublic ? 'Change Visibility' : 'Make Public'}
                   </Btn>
-                  <Btn ghost>Transfer Calendar</Btn>
+                  <Btn ghost style={{width: isSmallMobile ? '100%' : 'auto'}}>Transfer Calendar</Btn>
                 </div>
               </div>
             </Section>
 
-            {/* ── blasts ── */}
+            {/* blasts section */}
             <div id="blast-section">
               <Section title="Blasts" sub="Event-wide announcements.">
                 <EmptyBlock title="No blasts yet" body="Compose and send a blast to all registered guests." />
@@ -467,12 +581,11 @@ export default function EventOverviewPage({ user = null }) {
             </p>
           </div>
 
-          {/* ══ RIGHT SIDEBAR ══ */}
-          <aside style={s.sidebar}>
+          {/* ══ RIGHT SIDEBAR (Moves down cleanly on mobile) ══ */}
+          <aside style={{...s.sidebar, position: isTablet ? 'static' : 'sticky'}}>
             <div style={s.whenCard}>
               <h3 style={s.whenTitle}>When &amp; Where</h3>
 
-              {/* date row */}
               <div style={s.whenDateRow}>
                 <div style={s.calBadge}>
                   <span style={s.calMonth}>{getMonth(event.startDate).toUpperCase()}</span>
@@ -486,7 +599,6 @@ export default function EventOverviewPage({ user = null }) {
 
               <div style={s.whenDivider}/>
 
-              {/* location alert */}
               <div style={s.locationAlert}>
                 <div style={s.alertIconBox}>⚠</div>
                 <div>
@@ -501,7 +613,6 @@ export default function EventOverviewPage({ user = null }) {
 
               <div style={s.whenDivider}/>
 
-              {/* visibility */}
               <div style={s.sideVisSection}>
                 <div style={s.sideVisLabel}>Visibility</div>
                 <div style={s.sideVisValue}>{event.isPublic ? 'Public' : 'Private'}</div>
@@ -523,7 +634,7 @@ export default function EventOverviewPage({ user = null }) {
 }
 
 /* ══════════════════════════════════════════
-   SMALL COMPONENTS
+    SMALL RESUSABLE UTILITY COMPONENTS
 ══════════════════════════════════════════ */
 function ActionCard({ icon, label, color, onClick }) {
   const [hov, setHov] = useState(false)
@@ -556,7 +667,7 @@ function Chip({ children }) {
   return <span style={s.chip}>{children}</span>
 }
 
-function Btn({ children, onClick, disabled, ghost, small }) {
+function Btn({ children, onClick, disabled, ghost, small, style }) {
   const [hov, setHov] = useState(false)
   return (
     <button
@@ -568,6 +679,7 @@ function Btn({ children, onClick, disabled, ghost, small }) {
         ...(small ? s.btnSmall : {}),
         opacity: disabled ? .5 : 1,
         background: ghost ? 'transparent' : hov ? 'rgba(255,255,255,0.13)' : 'rgba(255,255,255,0.08)',
+        ...style
       }}
     >
       {children}
@@ -649,27 +761,26 @@ function fmtDate(v) {
 }
 
 /* ══════════════════════════════════════════
-   STYLES
+    STYLES (Adjusted for seamless layout wrapping)
 ══════════════════════════════════════════ */
 const s = {
-  /* shell */
   page:     { minHeight:'100vh', background:'#111114', color:'#ececf0', fontFamily:"'DM Sans',system-ui,sans-serif", WebkitFontSmoothing:'antialiased' },
   shell:    { minHeight:'100vh', display:'grid', placeItems:'center', background:'#111114', color:'#ececf0', fontFamily:"'DM Sans',system-ui,sans-serif" },
   shellCard:{ padding:32, borderRadius:20, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', textAlign:'center' },
 
   /* topbar */
-  topbar:      { height:60, padding:'0 28px', display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(17,17,20,0.9)', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)', borderBottom:'1px solid rgba(255,255,255,0.06)', position:'sticky', top:0, zIndex:50 },
+  topbar:      { height:60, display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(17,17,20,0.9)', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)', borderBottom:'1px solid rgba(255,255,255,0.06)', position:'sticky', top:0, zIndex:50 },
   topbarLeft:  { display:'flex', alignItems:'center', gap:10 },
   logo:        { color:'#a78bfa', fontSize:20 },
   brand:       { fontSize:16, fontWeight:700, letterSpacing:'-.3px' },
   eventPageBtn:{ background:'rgba(255,255,255,0.07)', color:'#ccc', border:'1px solid rgba(255,255,255,0.08)', borderRadius:999, padding:'8px 16px', fontWeight:600, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
-  adminBtn:    { background:'rgba(167,139,250,0.16)', color:'#ddd6fe', border:'1px solid rgba(167,139,250,0.24)', borderRadius:999, padding:'8px 16px', fontWeight:700, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif", marginLeft:10 },
+  adminBtn:    { background:'rgba(167,139,250,0.16)', color:'#ddd6fe', border:'1px solid rgba(167,139,250,0.24)', borderRadius:999, padding:'8px 16px', fontWeight:700, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
 
   /* layout */
-  main:     { maxWidth:1160, margin:'0 auto', padding:'28px 24px 80px' },
-  cols:     { display:'grid', gridTemplateColumns:'1fr 360px', gap:20, alignItems:'start' },
-  leftCol:  { display:'flex', flexDirection:'column', gap:20 },
-  sidebar:  { position:'sticky', top:80 },
+  main:     { maxWidth:1160, margin:'0 auto' },
+  cols:     { display:'grid', gap:20, alignItems:'start' },
+  leftCol:  { display:'flex', flexDirection:'column', gap:20, minWidth: 0 },
+  sidebar:  { top:80 },
 
   /* breadcrumb */
   breadcrumb:     { display:'flex', alignItems:'center', gap:6, color:'#6b6b7a', fontSize:14, marginBottom:16 },
@@ -677,20 +788,20 @@ const s = {
   breadcrumbSep:  { opacity:.4 },
 
   /* hero */
-  heroRow:    { display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:20, marginBottom:14 },
-  heroTitle:  { fontSize:'clamp(32px,4vw,52px)', fontWeight:900, letterSpacing:'-2px', margin:0, lineHeight:1.05 },
+  heroRow:    { display:'flex', gap:20, marginBottom:14 },
+  heroTitle:  { fontWeight:900, letterSpacing:'-2px', margin:0, lineHeight:1.05, wordBreak: 'break-word' },
   chips:      { display:'flex', gap:8, flexWrap:'wrap', marginTop:12 },
   chip:       { padding:'6px 12px', borderRadius:999, background:'rgba(255,255,255,0.06)', color:'#b0b0be', fontSize:12.5, border:'1px solid rgba(255,255,255,0.05)', fontWeight:500 },
   heroActions:{ display:'flex', gap:8, flexShrink:0 },
 
   /* tabs */
-  tabs:    { display:'flex', gap:24, borderBottom:'1px solid rgba(255,255,255,0.07)', marginBottom:20 },
+  tabs:    { display:'flex', borderBottom:'1px solid rgba(255,255,255,0.07)', marginBottom:20 },
   tab:     { background:'none', border:'none', color:'#6b6b7a', padding:'12px 0', fontSize:14.5, fontWeight:500, cursor:'pointer', fontFamily:"'DM Sans',system-ui,sans-serif", transition:'color .15s' },
   tabActive:{ color:'#f0f0f4', borderBottom:'2px solid #f0f0f4', marginBottom:-1 },
 
   /* action row */
-  actionRow: { display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 },
-  actionCard:{ display:'flex', alignItems:'center', gap:14, padding:'0 20px', height:72, borderRadius:16, border:'1px solid rgba(255,255,255,0.06)', cursor:'pointer', transition:'background .15s', fontFamily:"'DM Sans',system-ui,sans-serif" },
+  actionRow: { display:'grid', gap:12, marginBottom:20 },
+  actionCard:{ display:'flex', alignItems:'center', gap:14, padding:'0 20px', height:72, borderRadius:16, border:'1px solid rgba(255,255,255,0.06)', cursor:'pointer', transition:'background .15s', fontFamily:"'DM Sans',system-ui,sans-serif", width: '100%', textAlign: 'left' },
   actionIconBox:{ width:38, height:38, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 },
   actionLabel:{ fontSize:15, fontWeight:700, color:'#e0e0ea' },
 
@@ -698,18 +809,18 @@ const s = {
   toast:       { padding:'10px 16px', borderRadius:12, background:'rgba(94,234,212,0.12)', border:'1px solid rgba(94,234,212,0.2)', color:'#5eead4', fontSize:13, marginBottom:14 },
   errorBanner: { padding:'10px 16px', borderRadius:12, background:'rgba(248,113,113,0.10)', border:'1px solid rgba(248,113,113,0.2)', color:'#f87171', fontSize:13, marginBottom:14 },
 
-  /* ── preview card ── */
+  /* preview card */
   previewCard: { background:'#1a1a1f', border:'1px solid rgba(255,255,255,0.07)', borderRadius:20, overflow:'hidden', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' },
   previewTop:  { display:'flex', gap:0, padding:0 },
 
   /* cover square */
-  coverSquare: { width:220, flexShrink:0, minHeight:220, background:'#222228', position:'relative', overflow:'hidden' },
+  coverSquare: { flexShrink:0, background:'#222228', position:'relative', overflow:'hidden' },
   coverImg:    { width:'100%', height:'100%', objectFit:'cover', display:'block' },
 
-  /* preview info (right of cover) */
-  previewInfo:     { flex:1, padding:'20px 22px', display:'flex', flexDirection:'column', gap:14 },
-  previewTitle:    { fontSize:24, fontWeight:800, letterSpacing:'-.5px', margin:0, color:'#f0f0f4' },
-  previewDateRow:  { display:'flex', alignItems:'center', gap:12 },
+  /* preview info */
+  previewInfo:     { flex:1, padding:'20px 22px', display:'flex', flexDirection:'column', gap:14, minWidth: 0 },
+  previewTitle:    { fontSize:24, fontWeight:800, letterSpacing:'-.5px', margin:0, color:'#f0f0f4', wordBreak: 'break-word' },
+  previewDateRow:  { display:'flex', gap:12 },
   dateBadge:       { width:54, height:54, borderRadius:12, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.07)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flexShrink:0 },
   dateMonth:       { fontSize:10, color:'#7a7a8a', fontWeight:700 },
   dateDay:         { fontSize:22, fontWeight:800, lineHeight:1.1, color:'#e8e8f0' },
@@ -717,107 +828,97 @@ const s = {
   timeLabel:       { fontSize:13, color:'#9a9aaa' },
   locationRow:     { display:'flex', alignItems:'center', gap:8 },
   locationIcon:    { fontSize:14 },
-  locationText:    { fontSize:13.5, color:'#c0c0cc', fontWeight:500 },
+  locationText:    { fontSize:13.5, color:'#c0c0cc', fontWeight:500, wordBreak: 'break-word' },
   hostedBy:        { marginTop:'auto', paddingTop:8, borderTop:'1px solid rgba(255,255,255,0.06)' },
   hostedByLabel:   { fontSize:11, color:'#5a5a6a', marginBottom:6, fontWeight:600, textTransform:'uppercase', letterSpacing:'.5px' },
-  hostInlineRow:   { display:'flex', alignItems:'center', gap:8 },
-  hostAvatarSm:    { width:26, height:26, borderRadius:'50%', background:'#f5c842', color:'#111', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 },
-  hostInlineName:  { fontSize:13.5, fontWeight:600, color:'#d0d0da' },
+  hostInlineRow:   { display:'flex', alignItems: 'center', gap: 8 },
+  hostAvatarSm:    { width:24, height:24, borderRadius:999, background:'rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700 },
+  hostInlineName:  { fontSize:13.5, color:'#ececf0', fontWeight:600 },
 
   /* registration card */
-  regCard:      { margin:'0 18px 0', padding:'16px 18px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:16 },
-  regLabel:     { fontSize:11, fontWeight:700, color:'#6b6b7a', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:8 },
-  regCopy:      { fontSize:13.5, color:'#c0c0cc', lineHeight:1.55, marginBottom:12 },
-  regHostRow:   { display:'flex', alignItems:'center', gap:10, marginBottom:14 },
-  regHostAvatar:{ width:30, height:30, borderRadius:'50%', background:'#f5c842', color:'#111', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:12, flexShrink:0 },
-  regHostName:  { fontSize:14, fontWeight:700, color:'#e0e0ea', marginBottom:1 },
-  regHostEmail: { fontSize:12, color:'#6b6b7a' },
-  rsvpBtn:      { width:'100%', background:'#f4f4f5', color:'#111', border:'none', borderRadius:10, padding:'11px 0', fontWeight:800, fontSize:14, cursor:'pointer', fontFamily:"'DM Sans',system-ui,sans-serif" },
+  regCard:     { padding:22, background:'rgba(255,255,255,0.02)', borderTop:'1px solid rgba(255,255,255,0.06)', borderBottom:'1px solid rgba(255,255,255,0.06)' },
+  regLabel:    { fontSize:12, fontWeight:700, uppercase:true, letterSpacing:'.5px', color:'#7a7a8a', marginBottom:10, textTransform:'uppercase' },
+  regCopy:     { fontSize:14, color:'#b0b0be', lineHeight:1.5, margin:'0 0 16px 0' },
+  regHostRow:  { display:'flex', alignItems:'center', gap:12, marginBottom:20 },
+  regHostAvatar:{ width:40, height:40, borderRadius:999, background:'rgba(255,255,255,0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14 },
+  regHostName: { fontSize:14, fontWeight:700, color:'#f0f0f4' },
+  regHostEmail:{ fontSize:12.5, color:'#7a7a8a' },
+  rsvpBtn:     { width:'100%', padding:'12px', borderRadius:12, background:'#f0f0f4', color:'#111114', border:'none', fontWeight:700, fontSize:14, cursor:'pointer', transition:'opacity .15s' },
 
   /* share bar */
-  shareBar: { display:'flex', alignItems:'center', gap:10, padding:'14px 20px', borderTop:'1px solid rgba(255,255,255,0.06)', background:'rgba(0,0,0,0.18)' },
-  shareUrl:  { flex:1, fontSize:13, color:'#7a7a8a', fontVariantNumeric:'tabular-nums', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  shareArrow:{ background:'none', border:'none', color:'#7a7a8a', fontSize:16, cursor:'pointer', padding:'0 4px' },
-  shareSep:  { width:1, height:18, background:'rgba(255,255,255,0.08)' },
-  copyBtn:   { background:'none', border:'none', color:'#9a9aaa', fontWeight:800, fontSize:12, cursor:'pointer', letterSpacing:'.5px', fontFamily:"'DM Sans',system-ui,sans-serif", padding:'0 4px' },
+  shareBar:    { height:48, padding:'0 16px', display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(0,0,0,0.15)' },
+  shareUrl:    { fontSize:13, color:'#8a8a9a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginRight: 8 },
+  shareArrow:  { background:'none', border:'none', color:'#6b6b7a', fontSize:14, cursor:'pointer' },
+  shareSep:    { width:1, height:16, background:'rgba(255,255,255,0.1)', margin:'0 12px' },
+  copyBtn:     { background:'none', border:'none', color:'#a78bfa', fontSize:11, fontWeight:800, letterSpacing:'.5px', cursor:'pointer' },
 
-  /* bottom action bar */
-  bottomBar:     { background:'#1a1a1f', border:'1px solid rgba(255,255,255,0.07)', borderRadius:16, padding:'14px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' },
-  socialRow:     { display:'flex', alignItems:'center', gap:12 },
-  shareLabel:    { fontSize:13.5, fontWeight:600, color:'#6b6b7a', marginRight:4 },
-  socialBtn:     { background:'none', border:'none', color:'#9a9aaa', fontSize:16, cursor:'pointer', padding:'4px 6px', borderRadius:8, transition:'color .15s' },
-  bottomActions: { display:'flex', gap:10 },
-  bottomBtn:     { background:'rgba(255,255,255,0.08)', color:'#e0e0ea', border:'1px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'10px 18px', fontWeight:700, fontSize:13.5, cursor:'pointer', fontFamily:"'DM Sans',system-ui,sans-serif", transition:'background .15s' },
+  /* bottom bar */
+  bottomBar:   { display:'flex', justifyContent:'space-between', alignItems:'center', background:'#1a1a1f', border:'1px solid rgba(255,255,255,0.07)', borderRadius:16, padding:'0 24px', height:'auto', minHeight: 56 },
+  socialRow:   { display:'flex', alignItems:'center', gap:8 },
+  shareLabel:  { fontSize:12, color:'#6b6b7a', marginRight:4, fontWeight:600 },
+  socialBtn:   { width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.05)', border:'none', color:'#9a9aaa', fontSize:12, cursor:'pointer', display:'grid', placeItems:'center' },
+  bottomActions:{ display:'flex', gap:8 },
+  bottomBtn:   { background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:8, padding:'6px 12px', color:'#ccc', fontSize:12.5, fontWeight:600, cursor:'pointer' },
 
-  /* sections */
-  section:     { paddingTop:4 },
-  sectionHead: { display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:14 },
-  sectionTitle:{ fontSize:22, fontWeight:800, letterSpacing:'-.5px', margin:0, color:'#f0f0f4' },
-  sectionSub:  { fontSize:13.5, color:'#7a7a8a', margin:'4px 0 0', lineHeight:1.5 },
+  /* elements */
+  btn:         { padding:'10px 18px', borderRadius:10, border:'none', color:'#fff', fontWeight:600, fontSize:14, cursor:'pointer', display:'inline-flex', alignItems:'center', justifyContent:'center', fontFamily:"'DM Sans',system-ui,sans-serif" },
+  btnGhost:    { border:'1px solid rgba(255,255,255,0.15)', color:'#eee' },
+  btnSmall:    { padding:'6px 12px', fontSize:12.5, borderRadius:8 },
+  section:     { background:'#141419', border:'1px solid rgba(255,255,255,0.05)', borderRadius:20, padding:24, display:'flex', flexDirection:'column', gap:16 },
+  sectionHead: { display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16 },
+  sectionTitle:{ fontSize:18, fontWeight:800, margin:0, color:'#f0f0f4' },
+  sectionSub:  { fontSize:13, color:'#7a7a8a', margin:'4px 0 0 0' },
+  textarea:    { width:'100%', background:'rgba(0,0,0,0.2)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:14, color:'#fff', fontSize:14, fontFamily:'inherit', boxSizing:'border-box', resize:'vertical' },
+  emptyBlock:  { padding:'32px 16px', background:'rgba(0,0,0,0.1)', borderRadius:14, border:'1px dashed rgba(255,255,255,0.06)', textAlign:'center' },
+  emptyTitle:  { fontSize:14, fontWeight:700, color:'#9a9aaa', marginBottom:4 },
+  emptyBody:   { fontSize:12.5, color:'#6b6b7a' },
+  inviteList:  { display:'flex', flexDirection:'column', gap:8 },
+  inviteItem:  { display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'rgba(255,255,255,0.02)', borderRadius:10, fontSize:13.5 },
+  sentAt:      { fontSize:12, color:'#6b6b7a' },
+  hostCard:    { display:'flex', alignItems:'center', gap:14, padding:16, background:'rgba(255,255,255,0.03)', borderRadius:14, border:'1px solid rgba(255,255,255,0.05)' },
+  hostAvatarLg:{ width:48, height:48, borderRadius:999, background:'rgba(255,255,255,0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700 },
+  hostCardBody:{ minWidth: 0 },
+  hostCardNameRow:{ display:'flex', alignItems:'center', gap:8, marginBottom:2 },
+  badge:       { padding:'2px 6px', borderRadius:4, background:'rgba(167,139,250,0.15)', color:'#c084fc', fontSize:10, fontWeight:700 },
+  hostCardEmail:{ fontSize:13, color:'#7a7a8a' },
+  hostComposer:{ background:'rgba(0,0,0,0.15)', borderRadius:14, padding:16, marginTop:8 },
+  hostComposerTitle:{ fontSize:13, fontWeight:700, color:'#9a9aaa', marginBottom:12 },
+  hostComposerGrid:{ display:'grid', gap:10 },
+  hostInput:   { background:'rgba(0,0,0,0.2)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', color:'#fff', fontSize:13.5 },
+  visCard:     { padding:16, background:'rgba(255,255,255,0.03)', borderRadius:14, border:'1px solid rgba(255,255,255,0.05)' },
+  visTop:      { display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 },
+  visCalLabel: { fontSize:11, color:'#6b6b7a', textTransform:'uppercase', fontWeight:600 },
+  visCalName:  { fontSize:14, fontWeight:700, color:'#e0e0ea', marginTop:2 },
+  visBadge:    { fontSize:12, fontWeight:600, background:'rgba(255,255,255,0.04)', padding:'4px 8px', borderRadius:6 },
+  visActions:  { display:'flex', gap:8 },
+  footerNote:  { fontSize:12.5, color:'#5a5a6a', textAlign:'center', lineHeight:1.5, margin:'20px 0 0 0' },
 
-  /* edit */
-  editGrid:    { display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 },
-  editField:   { display:'grid', gap:6 },
-  editLabel:   { fontSize:12, fontWeight:700, color:'#6b6b7a', textTransform:'uppercase', letterSpacing:'.4px' },
-  editInput:   { width:'100%', boxSizing:'border-box', borderRadius:10, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(0,0,0,0.25)', color:'#e8e8f0', padding:'10px 12px', fontFamily:"'DM Sans',system-ui,sans-serif", fontSize:14, outline:'none', colorScheme:'dark' },
-  fileInput:   { color:'#9a9aaa', fontSize:13 },
-  editFooter:  { display:'flex', justifyContent:'flex-end', gap:10, marginTop:16 },
+  /* sidebar when card */
+  whenCard:    { background:'#141419', border:'1px solid rgba(255,255,255,0.05)', borderRadius:20, padding:20 },
+  whenTitle:   { fontSize:15, fontWeight:800, margin:'0 0 16px 0', color:'#f0f0f4' },
+  whenDateRow: { display:'flex', alignItems:'center', gap:14 },
+  calBadge:    { width:48, height:48, borderRadius:10, background:'#222228', border:'1px solid rgba(255,255,255,0.06)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' },
+  calMonth:    { fontSize:9, color:'#a78bfa', fontWeight:700 },
+  calDay:      { fontSize:18, fontWeight:800, color:'#f0f0f4', lineHeight:1.1 },
+  whenDayLabel:{ fontSize:13.5, fontWeight:700, color:'#e0e0ea' },
+  whenTime:    { fontSize:12.5, color:'#7a7a8a', marginTop:2 },
+  whenDivider: { height:1, background:'rgba(255,255,255,0.05)', margin:'16px 0' },
+  locationAlert:{ display:'flex', gap:12 },
+  alertIconBox:{ width:28, height:28, borderRadius:999, background:'rgba(234,179,8,0.1)', color:'#eab308', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700, flexShrink:0 },
+  alertTitle:  { fontSize:13, fontWeight:700, color:'#e0e0ea' },
+  alertBody:   { fontSize:12, color:'#7a7a8a', marginTop:2, lineHeight:1.4 },
+  sideVisSection:{ display:'flex', flexDirection:'column', gap:4 },
+  sideVisLabel:{ fontSize:12, color:'#6b6b7a', fontWeight:600 },
+  sideVisValue:{ fontSize:14, fontWeight:700, color:'#e0e0ea' },
+  sideVisCopy: { fontSize:12, color:'#7a7a8a', lineHeight:1.4, margin:'4px 0 10px 0' },
+  sideVisBtn:  { background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.06)', padding:'8px', borderRadius:8, color:'#ccc', fontSize:12, fontWeight:600, cursor:'pointer' },
 
-  /* invite */
-  textarea:    { width:'100%', boxSizing:'border-box', borderRadius:12, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(0,0,0,0.2)', color:'#e8e8f0', padding:'12px 14px', fontFamily:"'DM Sans',system-ui,sans-serif", fontSize:13.5, resize:'vertical', outline:'none' },
-  inviteList:  { marginTop:12, display:'flex', flexDirection:'column', gap:8 },
-  inviteItem:  { display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.05)', fontSize:13 },
-  sentAt:      { color:'#5a5a6a', fontSize:11.5 },
-
-  /* host */
-  hostCard:         { display:'flex', alignItems:'center', gap:12, padding:'14px 16px', borderRadius:14, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.06)' },
-  hostAvatarLg:     { width:40, height:40, borderRadius:'50%', background:'#f5c842', color:'#111', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:14, flexShrink:0 },
-  hostCardBody:     { flex:1 },
-  hostCardNameRow:  { display:'flex', alignItems:'center', gap:8, marginBottom:2 },
-  hostCardEmail:    { fontSize:12.5, color:'#5a5a6a' },
-  badge:            { padding:'2px 8px', borderRadius:999, background:'#162a1a', color:'#86efac', fontSize:11, fontWeight:700 },
-  hostComposer:     { marginTop:12, padding:'16px 18px', borderRadius:14, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' },
-  hostComposerTitle:{ fontSize:15, fontWeight:700, marginBottom:12, color:'#d0d0da' },
-  hostComposerGrid: { display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 },
-  hostInput:        { width:'100%', boxSizing:'border-box', borderRadius:10, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(0,0,0,0.2)', color:'#e8e8f0', padding:'10px 12px', fontFamily:"'DM Sans',system-ui,sans-serif", fontSize:13.5, outline:'none' },
-
-  /* visibility */
-  visCard:     { background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:16, padding:'18px 20px' },
-  visTop:      { display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:16 },
-  visCalLabel: { fontSize:12, color:'#5a5a6a', marginBottom:4 },
-  visCalName:  { fontSize:17, fontWeight:700, color:'#d0d0da' },
-  visBadge:    { fontSize:13, fontWeight:700 },
-  visActions:  { display:'flex', gap:10, flexWrap:'wrap' },
-
-  /* empty block */
-  emptyBlock: { padding:'18px 20px', borderRadius:14, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.05)' },
-  emptyTitle: { fontSize:15, fontWeight:700, color:'#9a9aaa', marginBottom:5 },
-  emptyBody:  { fontSize:13, color:'#5a5a6a', lineHeight:1.55 },
-
-  footerNote: { fontSize:13, color:'#5a5a6a', lineHeight:1.7, paddingTop:16, borderTop:'1px solid rgba(255,255,255,0.06)' },
-
-  /* sidebar / when card */
-  whenCard:    { background:'#1a1a1f', border:'1px solid rgba(255,255,255,0.07)', borderRadius:20, padding:'22px 20px', boxShadow:'0 8px 40px rgba(0,0,0,0.3)' },
-  whenTitle:   { fontSize:26, fontWeight:900, letterSpacing:'-.5px', margin:'0 0 18px', color:'#f0f0f4' },
-  whenDateRow: { display:'flex', alignItems:'center', gap:14, marginBottom:20 },
-  calBadge:    { width:60, height:60, borderRadius:14, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.06)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flexShrink:0 },
-  calMonth:    { fontSize:11, color:'#5a5a6a', fontWeight:700 },
-  calDay:      { fontSize:24, fontWeight:800, lineHeight:1.1, color:'#e8e8f0' },
-  whenDayLabel:{ fontSize:20, fontWeight:800, color:'#f0f0f4', marginBottom:4 },
-  whenTime:    { fontSize:15, color:'#b0b0be' },
-  whenDivider: { height:1, background:'rgba(255,255,255,0.06)', margin:'18px 0' },
-  locationAlert:    { display:'flex', gap:12, alignItems:'flex-start' },
-  alertIconBox:     { width:40, height:40, borderRadius:12, background:'rgba(251,191,36,0.10)', color:'#fbbf24', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 },
-  alertTitle:       { fontSize:16, fontWeight:800, color:'#fbbf24', marginBottom:5 },
-  alertBody:        { fontSize:13.5, color:'#9a9aaa', lineHeight:1.55 },
-  sideVisSection:   { paddingTop:4 },
-  sideVisLabel:     { fontSize:11, fontWeight:700, color:'#5a5a6a', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:6 },
-  sideVisValue:     { fontSize:22, fontWeight:800, color:'#f0f0f4', marginBottom:6 },
-  sideVisCopy:      { fontSize:13, color:'#6b6b7a', lineHeight:1.55, marginBottom:14 },
-  sideVisBtn:       { width:'100%', background:'rgba(255,255,255,0.07)', color:'#e0e0ea', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'11px 0', fontWeight:700, fontSize:13.5, cursor:'pointer', fontFamily:"'DM Sans',system-ui,sans-serif", transition:'background .15s' },
-
-  /* shared button */
-  btn:      { background:'rgba(255,255,255,0.08)', color:'#e0e0ea', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'10px 16px', fontWeight:700, fontSize:13.5, cursor:'pointer', fontFamily:"'DM Sans',system-ui,sans-serif", transition:'background .15s', whiteSpace:'nowrap' },
-  btnGhost: { background:'transparent', border:'1px solid rgba(255,255,255,0.10)' },
-  btnSmall: { padding:'7px 12px', fontSize:12.5, borderRadius:10 },
+  /* edit section inner grid */
+  editGrid:    { display:'grid', gap:14 },
+  editField:   { display:'flex', flexDirection:'column', gap:6 },
+  editLabel:   { fontSize:12.5, fontWeight:600, color:'#9a9aaa' },
+  editInput:   { background:'rgba(0,0,0,0.2)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'10px 12px', color:'#fff', fontSize:13.5, fontFamily:'inherit' },
+  fileInput:   { fontSize:13, color:'#7a7a8a' },
+  editFooter:  { display:'flex', justifyContent:'flex-end', gap:10, marginTop:10 }
+  , inputError: { color: '#fca5a5', marginTop: 6, fontSize: 13, fontWeight: 700 }
 }

@@ -1,86 +1,99 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { getApiBaseUrl } from '../services/api.js'
 
 /* ══════════════════════════════════════
    HELPERS
 ══════════════════════════════════════ */
-function deriveNameFromEmail(email) {
-  const local = String(email || '').split('@')[0] || ''
-  return local.replace(/[._+-]+/g, ' ').trim()
-    .split(' ').filter(Boolean)
-    .map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')
+function slugify(v) {
+  return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')
 }
-
+function formatDisplay(v) {
+  return String(v||'').split('@')[0].replace(/[._+-]+/g,' ').trim()
+    .split(' ').filter(Boolean).map(p=>p.charAt(0).toUpperCase()+p.slice(1)).join(' ')
+}
+function formatMoney(n) { return `₦${Number(n||0).toLocaleString()}` }
+function estimateFee(n) { const v=Number(n||0); return v?Math.round(v*0.015)+1:0 }
 function formatDateLong(d) {
   if (!d) return 'Date TBC'
-  const date = new Date(d)
-  return isNaN(date.getTime()) ? d
-    : new Intl.DateTimeFormat('en-NG', { weekday: 'long', day: 'numeric', month: 'long' }).format(date)
+  const dt=new Date(d)
+  return isNaN(dt.getTime())?d:new Intl.DateTimeFormat('en-NG',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(dt)
 }
-
-function formatTimeRange(s, e) {
-  if (!s && !e) return 'Time TBC'
-  return [s, e].filter(Boolean).join(' – ')
+function formatTimeRange(s,e) { return [s,e].filter(Boolean).join(' – ')||'Time TBC' }
+function deriveNameFromEmail(email) {
+  return String(email||'').split('@')[0].replace(/[._+-]+/g,' ').trim()
+    .split(' ').filter(Boolean).map(p=>p.charAt(0).toUpperCase()+p.slice(1)).join(' ')
 }
-
-function slugify(v) {
-  return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+function extractNomineeName(v) {
+  if (!v) return ''
+  if (typeof v==='string'||typeof v==='number') return String(v).trim()
+  if (typeof v!=='object') return ''
+  if (typeof v.name==='string'||typeof v.name==='number') return String(v.name).trim()
+  if (v.name&&typeof v.name==='object') return String(v.name.name||v.name.label||v.name.value||'').trim()
+  return String(v.nominee||v.label||v.value||v.title||v.text||v.fullName||'').trim()
 }
-
-function resolveNomineeName(award, input) {
-  if (!award) return ''
-  const target = String(input || '').trim().toLowerCase()
-  if (!target) return ''
-  const nominees = Array.isArray(award.nominees) ? award.nominees : []
-  const match = nominees.find(n =>
-    slugify(n?.name || n) === target ||
-    String(n?.name || n).trim().toLowerCase() === target
-  )
-  return match?.name || match || ''
+function extractNomineeImageUrl(v) {
+  if (!v||typeof v!=='object') return ''
+  const img=v.image||v.photo||v.picture||v.avatar||v.imageUrl||''
+  if (typeof img==='string') return img.trim()
+  if (img&&typeof img==='object') return String(img.url||img.src||img.path||img.value||'').trim()
+  return ''
 }
-
-function formatDisplay(v) {
-  const raw = String(v || '').split('@')[0] || ''
-  return raw.replace(/[._+-]+/g, ' ').trim()
-    .split(' ').filter(Boolean)
-    .map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')
+function getAwardVotes(award) {
+  return Array.isArray(award?.votes) ? award.votes : []
 }
-
-function formatMoney(amount) {
-  return `₦${Number(amount || 0).toLocaleString()}`
+function countAwardVotes(award) {
+  const votes = getAwardVotes(award)
+  const fromRows = votes.reduce((total, vote) => total + Number(vote?.quantity || 1), 0)
+  return fromRows || Number(award?.voteCount || 0)
 }
-
-function estimateFee(amount) {
-  const value = Number(amount || 0)
-  if (!value) return 0
-
-  const variableFee = Math.round(value * 0.015)
-  const flatFee = 1
-  return variableFee + flatFee
+function countNomineeVotes(award, nomineeName) {
+  const votes = getAwardVotes(award)
+  const target = formatDisplay(nomineeName).toLowerCase() || String(nomineeName||'').trim().toLowerCase()
+  const fromRows = votes.reduce((total, vote) => {
+    const value = vote?.nominee || vote?.nomineeName || vote?.candidate || vote?.choice || ''
+    const voteName = formatDisplay(value).toLowerCase() || String(value||'').trim().toLowerCase()
+    return voteName === target ? total + Number(vote?.quantity || 1) : total
+  }, 0)
+  return fromRows
+}
+function resolveNomineeDetails(award, input) {
+  if (!award) return null
+  const target=String(input||'').trim().toLowerCase()
+  if (!target) return null
+  const pool=[...(award.contestants||[]),...(award.nominees||[])]
+  const match=pool.find(n=>{
+    const name=(extractNomineeName(n)||String(n?.name||n||'')).toLowerCase()
+    return name===target||slugify(n?.slug||extractNomineeName(n)||n)===target
+  })
+  if (!match) return null
+  if (typeof match==='string') return {name:match,imageUrl:'',slug:slugify(match)}
+  return {
+    name:extractNomineeName(match)||match.name||'',
+    imageUrl:extractNomineeImageUrl(match),
+    slug:match.slug||slugify(extractNomineeName(match)||match.name||''),
+  }
 }
 
 async function verifyVotePayment(ctx, response) {
-  const { apiBase, eventId, awardId, voteReference, quantity, name, email, nominee, setAwards, setVoteMessage, navigate, backUrl } = ctx
+  const {apiBase,eventId,awardId,voteReference,quantity,name,email,nominee,setAwards,setVoteMsg,navigate,backUrl}=ctx
   try {
-    const res  = await fetch(`${apiBase}/awards/events/${eventId}/${awardId}/vote`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reference: response.reference || voteReference, name, email, quantity, nominee }),
+    const res=await fetch(`${apiBase}/awards/events/${eventId}/${awardId}/vote`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({reference:response.reference||voteReference,name,email,quantity,nominee}),
     })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.message || 'Failed to verify vote payment')
-    setAwards(prev => prev.map(a =>
-      a.id === awardId
-        ? { ...a, voteCount: data.award?.voteCount ?? a.voteCount, voterCount: data.award?.voterCount ?? a.voterCount }
-        : a
-    ))
+    const data=await res.json()
+    if (!res.ok) throw new Error(data.message||'Failed to verify vote')
+    setAwards(prev=>prev.map(a=>a.id===awardId?{
+      ...a,
+      voteCount:data.award?.voteCount ?? a.voteCount,
+      votes:data.award?.votes ?? a.votes,
+    }:a))
     navigate(
-      `/thank-you?type=vote&back=${encodeURIComponent(backUrl)}&title=${encodeURIComponent('Thank you for voting')}&subtitle=${encodeURIComponent('Your vote has been recorded successfully. You can revote for a friend next.')}`,
-      { replace: true }
+      `/thank-you?type=vote&back=${encodeURIComponent(backUrl)}&title=${encodeURIComponent('Thank you for voting!')}&subtitle=${encodeURIComponent('Your vote has been recorded. You can vote again for a friend next.')}`,
+      {replace:true}
     )
-  } catch (err) {
-    setVoteMessage(err.message)
-  }
+  } catch(err) { setVoteMsg(err.message) }
 }
 
 /* ══════════════════════════════════════
@@ -88,452 +101,407 @@ async function verifyVotePayment(ctx, response) {
 ══════════════════════════════════════ */
 export default function VotingPage() {
   const { eventId, awardId, nomineeSlug } = useParams()
-  const navigate = useNavigate()
+  const navigate    = useNavigate()
+  const API_BASE    = getApiBaseUrl()
   const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
 
-  const [event,    setEvent]    = useState(null)
-  const [awards,   setAwards]   = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState('')
-  const [voteMsg,  setVoteMsg]  = useState('')
-  const [votingId, setVotingId] = useState('')
-  const [quantities, setQuantities] = useState({})
-  const [selected,   setSelected]   = useState({})
-  const [form,     setForm]     = useState({ name: '', email: '' })
+  const [event,      setEvent]      = useState(null)
+  const [awards,     setAwards]     = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [error,      setError]      = useState('')
+  const [voteMsg,    setVoteMsg]    = useState('')
+  const [votingId,   setVotingId]   = useState('')
+  const [quantity,   setQuantity]   = useState(1)
+  const [selected,   setSelected]   = useState('')
+  const [form,       setForm]       = useState({name:'',email:''})
 
-  /* poster upload state */
-  const [posterUrl,  setPosterUrl]  = useState(null)
-  const [posterDrag, setPosterDrag] = useState(false)
-  const fileRef = useRef()
+  /* responsive */
+  const [vw,setVw]=useState(typeof window!=='undefined'?window.innerWidth:1200)
+  useEffect(()=>{
+    const fn=()=>setVw(window.innerWidth)
+    window.addEventListener('resize',fn)
+    return ()=>window.removeEventListener('resize',fn)
+  },[])
+  const isMobile=vw<768
 
-  /* Responsive hook tracking window scale */
-  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
-
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
-
-  const isMobile = windowWidth < 768
-  const isTablet = windowWidth < 1024
-
-  /* auto-fill name from email */
-  useEffect(() => {
+  /* auto-fill name */
+  useEffect(()=>{
     if (!form.email) return
-    const derived = deriveNameFromEmail(form.email)
-    setForm(prev => {
-      if (prev.name && prev.name !== deriveNameFromEmail(prev.email)) return prev
-      return { ...prev, name: derived }
-    })
-  }, [form.email])
+    const derived=deriveNameFromEmail(form.email)
+    setForm(prev=>prev.name&&prev.name!==deriveNameFromEmail(prev.email)?prev:{...prev,name:derived})
+  },[form.email])
 
-  /* load Paystack inline.js */
-  useEffect(() => {
+  /* load Paystack */
+  useEffect(()=>{
     if (window.PaystackPop) return
-    const s = document.createElement('script')
-    s.src = 'https://js.paystack.co/v1/inline.js'
-    s.async = true
+    const s=document.createElement('script')
+    s.src='https://js.paystack.co/v1/inline.js'; s.async=true
     document.body.appendChild(s)
-    return () => { try { document.body.removeChild(s) } catch {} }
-  }, [])
+    return ()=>{ try{document.body.removeChild(s)}catch{} }
+  },[])
 
-  /* load event + awards */
-  useEffect(() => {
+  /* load data */
+  useEffect(()=>{
+    let cancelled=false
     async function load() {
       setLoading(true); setError('')
       try {
-        const [evRes, awRes] = await Promise.all([
+        const [evRes,awRes]=await Promise.all([
           fetch(`${API_BASE}/events/public/${eventId}`),
           fetch(`${API_BASE}/awards/events/${eventId}`),
         ])
-        const evData = await evRes.json()
-        const awData = await awRes.json()
-        if (!evRes.ok) throw new Error(evData.message || 'Failed to load event')
-        if (!awRes.ok) throw new Error(awData.message || 'Failed to load awards')
-        const awards = Array.isArray(awData.awards) ? awData.awards : []
-
-        // fetch contestants for each award and attach to award objects
-        const awardsWithContestants = await Promise.all(awards.map(async a => {
+        const evData=await evRes.json()
+        const awData=await awRes.json()
+        if (!evRes.ok) throw new Error(evData.message||'Failed to load event')
+        if (!awRes.ok) throw new Error(awData.message||'Failed to load awards')
+        const loadedEvent=evData.event||evData.data?.event||evData.data||null
+        const rawAwards=Array.isArray(awData.awards)?awData.awards:(Array.isArray(awData.data?.awards)?awData.data.awards:[])
+        const baseAwards=rawAwards.map(a=>({...a,contestants:Array.isArray(a.contestants)?a.contestants:(Array.isArray(a.nominees)?a.nominees:[])}))
+        if (cancelled) return
+        setEvent(loadedEvent)
+        setAwards(baseAwards)
+        setLoading(false)
+        void Promise.all(baseAwards.map(async a=>{
           try {
-            const cRes = await fetch(`/api/awards/events/${eventId}/${a.id}/contestants`)
-            const cData = await cRes.json()
-            if (!cRes.ok) return { ...a, contestants: [] }
-            return { ...a, contestants: Array.isArray(cData.data?.contestants) ? cData.data.contestants : [] }
-          } catch (err) {
-            return { ...a, contestants: [] }
-          }
-        }))
-
-        setEvent(evData.event)
-        setAwards(awardsWithContestants)
-      } catch (err) { setError(err.message) }
-      finally { setLoading(false) }
+            const cRes=await fetch(`${API_BASE}/awards/events/${eventId}/${a.id}/contestants`)
+            const cData=await cRes.json()
+            if (!cRes.ok) return a
+            return {...a,contestants:Array.isArray(cData.data?.contestants)?cData.data.contestants:(Array.isArray(cData.contestants)?cData.contestants:[])}
+          } catch { return a }
+        })).then(updated=>{
+          if (!cancelled&&updated.length) setAwards(updated)
+        })
+      } catch(err) { if(!cancelled){setError(err.message);setLoading(false)} }
     }
     load()
-  }, [eventId])
+    return ()=>{ cancelled=true }
+  },[eventId])
 
-  const heroAward    = awards.find(a => a.id === awardId) || awards[0] || null
-  const heroNominees = Array.isArray(heroAward?.contestants) ? heroAward.contestants.map(c=>c.name) : (Array.isArray(heroAward?.nominees) ? heroAward.nominees : [])
-  const activeKey    = heroAward?.id || awardId || eventId
+  /* derive active award + nominee */
+  const heroAward    = awards.find(a=>a.id===awardId)||awards[0]||null
+  const heroNominees = Array.isArray(heroAward?.contestants)&&heroAward.contestants.length>0
+    ? heroAward.contestants
+    : (Array.isArray(heroAward?.nominees)?heroAward.nominees:[])
+  const activeKey    = heroAward?.id||awardId||eventId
 
-  const resolvedNominee = resolveNomineeName(heroAward, nomineeSlug)
-    || resolveNomineeName(heroAward, heroNominees[0])
-    || ''
+  /* resolve selected nominee from URL slug or first */
+  const defaultNominee = heroNominees[0]
+    ? (extractNomineeName(heroNominees[0])||String(heroNominees[0]))
+    : ''
+  const currentNominee = selected || defaultNominee
+  const nomDetails     = resolveNomineeDetails(heroAward, currentNominee)
+    || (heroNominees[0] && typeof heroNominees[0]==='object'
+        ? {name:extractNomineeName(heroNominees[0]),imageUrl:extractNomineeImageUrl(heroNominees[0]),slug:''}
+        : null)
 
-  const currentNominee = selected[activeKey] || resolvedNominee
-  const quantity = Math.max(1, Number(quantities[activeKey] || 1))
+  /* payment calc */
   const subtotal = quantity * 50
-  const transactionFee = estimateFee(subtotal)
-  const totalAmount = subtotal + transactionFee
-  const totalVotes = awards.reduce((t, a) => t + Number(a.voteCount || 0), 0)
-
-  function handlePosterFile(file) {
-    if (!file || !file.type.startsWith('image/')) return
-    const url = URL.createObjectURL(file)
-    setPosterUrl(url)
-  }
+  const fee      = estimateFee(subtotal)
+  const total    = subtotal + fee
+  const totalVotes = countAwardVotes(heroAward)
+  const selectedVotes = countNomineeVotes(heroAward, nomDetails?.name || currentNominee)
 
   async function handleVote() {
     setVoteMsg(''); setError('')
-    if (!form.email)     { setVoteMsg('Enter your email before voting.'); return }
-    if (!currentNominee) { setVoteMsg('Select a nominee before voting.'); return }
-    if (!paystackKey)    { setVoteMsg('Paystack key is missing.'); return }
-    if (!window.PaystackPop) { setVoteMsg('Paystack is still loading. Try again.'); return }
-
-    const amount = subtotal * 100
+    if (!form.email)     { setVoteMsg('Please enter your email first.'); return }
+    if (!currentNominee) { setVoteMsg('Please select a nominee.'); return }
+    if (!paystackKey)    { setVoteMsg('Payment key is missing.'); return }
+    if (!window.PaystackPop) { setVoteMsg('Payment system loading, please try again.'); return }
     setVotingId(activeKey)
     try {
-      const ref = `${activeKey}-${slugify(currentNominee)}-${Date.now()}`
-      const handler = window.PaystackPop.setup({
-        key:      paystackKey,
-        email:    form.email,
-        amount,
-        currency: 'NGN',
-        channels: ['card', 'bank_transfer', 'ussd', 'bank'],
-        ref,
-        metadata: {
-          platform:     'eventsphere',
-          payment_type: 'vote',
-          eventId, awardId: activeKey, quantity,
-          name: form.name, email: form.email, nominee: currentNominee,
-          custom_fields: [
-            { display_name: 'Platform',    variable_name: 'platform',    value: 'EventSphere' },
-            { display_name: 'Payment Type',variable_name: 'payment_type',value: 'Vote' },
-            { display_name: 'Award',       variable_name: 'award_title', value: heroAward?.title || '' },
-            { display_name: 'Voting For',  variable_name: 'nominee',     value: currentNominee },
-            { display_name: 'Votes',       variable_name: 'quantity',    value: String(quantity) },
-            { display_name: 'Voter',       variable_name: 'voter_name',  value: form.name || form.email },
+      const ref=`${activeKey}-${slugify(currentNominee)}-${Date.now()}`
+      const handler=window.PaystackPop.setup({
+        key:paystackKey, email:form.email, amount:subtotal*100, currency:'NGN',
+        channels:['card','bank_transfer','ussd','bank'], ref,
+        metadata:{
+          platform:'nest',payment_type:'vote',eventId,awardId:activeKey,
+          quantity,name:form.name,email:form.email,nominee:currentNominee,
+          custom_fields:[
+            {display_name:'Platform',    variable_name:'platform',     value:'NEST'},
+            {display_name:'Payment Type',variable_name:'payment_type', value:'Vote'},
+            {display_name:'Award',       variable_name:'award_title',  value:heroAward?.title||''},
+            {display_name:'Voting For',  variable_name:'nominee',      value:currentNominee},
+            {display_name:'Votes',       variable_name:'quantity',     value:String(quantity)},
+            {display_name:'Voter',       variable_name:'voter_name',   value:form.name||form.email},
           ],
         },
-        callback: response => {
+        callback:response=>{
           void verifyVotePayment({
-            eventId, awardId: activeKey, voteReference: ref,
-            quantity, name: form.name, email: form.email, nominee: currentNominee,
-            setAwards, setVoteMessage: setVoteMsg,
-            navigate,
-            apiBase: API_BASE,
-            backUrl: `/public/events/${eventId}/voting/${activeKey}`,
-          }, response)
+            eventId,awardId:activeKey,voteReference:ref,
+            quantity,name:form.name,email:form.email,nominee:currentNominee,
+            setAwards,setVoteMsg,navigate,apiBase:API_BASE,
+            backUrl:`/public/events/${eventId}/voting/${activeKey}`,
+          },response)
         },
-        onClose: () => setVoteMsg('Checkout closed before payment was completed.'),
+        onClose:()=>setVoteMsg('Payment window closed before completing.'),
       })
       handler.openIframe()
-    } catch (err) { setVoteMsg(err.message) }
+    } catch(err) { setVoteMsg(err.message) }
     finally { setVotingId('') }
   }
 
-  if (loading) return <Shell msg="Loading voting page…" />
-  if (error && !event) return <Shell msg={error} label="Back" onAction={() => navigate('/events')} />
-  if (!event) return <Shell msg="Event not found" label="Back" onAction={() => navigate('/events')} />
+  if (loading) return <Shell msg="Loading voting page…"/>
+  if (error&&!event) return <Shell msg={error} label="Back" onAction={()=>navigate('/events')}/>
+  if (!event) return <Shell msg="Event not found" label="Back" onAction={()=>navigate('/events')}/>
+
+  const nomName  = formatDisplay(nomDetails?.name||currentNominee)
+  const nomImage = nomDetails?.imageUrl||''
 
   return (
     <div style={S.page}>
+
       {/* ── TOPBAR ── */}
       <header style={S.topbar}>
-        <div style={S.brand}>
-          <div style={S.brandMark}>✦</div>
-          <span style={S.brandText}>EventsNest</span>
-        </div>
+        <span style={S.brandMark}>NEST✦</span>
         <div style={S.secureTag}>
-          <span style={S.secureDot} />
-          {!isMobile && 'Secure Voting'}
+          <span style={S.secureDot}/>
+          <span style={{fontSize:13,fontWeight:600,color:'#6b6b7a'}}>
+            {isMobile?'Secure':'Secure Voting · Paystack'}
+          </span>
         </div>
       </header>
 
-      {/* ── HERO BANNER ── */}
-      <section style={{ ...S.hero, padding: isMobile ? '32px 16px 48px' : '44px 28px 56px' }}>
-        <div style={S.heroChip}>{heroAward?.title || 'Award Category'}</div>
-        <h1 style={S.heroTitle}>
-          Vote for <span style={S.heroHighlight}>{formatDisplay(currentNominee) || 'your favourite'}</span>
-        </h1>
-        <p style={S.heroSub}>{event.title}</p>
-        <div style={S.heroPills}>
-          {[
-            formatDisplay(currentNominee) || 'Select nominee',
-            heroAward?.title || 'Category',
-            '₦50 per vote',
-            `${totalVotes.toLocaleString()} total votes`,
-          ].map(t => <span key={t} style={S.heroPill}>{t}</span>)}
-        </div>
-      </section>
-
-      {/* ── BODY ── */}
-      <main style={{ 
-        ...S.body, 
-        gridTemplateColumns: isTablet ? '1fr' : '1fr 360px',
-        margin: isMobile ? '0 auto' : '-24px auto 0',
-        padding: isMobile ? '16px 16px 60px' : '0 24px 80px'
+      {/* ── PAGE WRAPPER ── */}
+      <div style={{
+        maxWidth:960,
+        margin:'0 auto',
+        padding:isMobile?'20px 16px 80px':'32px 24px 80px',
+        display:'grid',
+        gridTemplateColumns:isMobile?'1fr':'1fr 1fr',
+        gap:isMobile?20:28,
+        alignItems:'start',
       }}>
 
-        {/* ══ LEFT ══ */}
-        <div style={S.left}>
+        {/* ════════ LEFT COLUMN ════════ */}
+        <div style={S.leftCol}>
 
-          {/* poster + vote count */}
-          <div style={{ ...S.posterRow, flexDirection: isMobile ? 'column' : 'row' }}>
+          {/* category badge + title */}
+          <div style={S.categoryBadge}>{heroAward?.title||'Award Category'}</div>
+          <h1 style={S.pageTitle}>
+            Vote for <span style={S.pageTitleAccent}>{nomName||'Nominee'}</span>
+          </h1>
+          <p style={S.eventSubtitle}>{event.title}</p>
+          {heroAward?.description&&(
+            <p style={S.awardDesc}>{heroAward.description}</p>
+          )}
 
-            {/* ── POSTER IMAGE INPUT ── */}
-            <div
-              style={{
-                ...S.posterWrap,
-                width: isMobile ? '100%' : 180,
-                height: isMobile ? 220 : 180,
-                border: posterDrag
-                  ? '2px dashed #a78bfa'
-                  : posterUrl ? '2px solid rgba(255,255,255,0.1)' : '2px dashed rgba(255,255,255,0.18)',
-              }}
-              onClick={() => fileRef.current.click()}
-              onDragOver={e => { e.preventDefault(); setPosterDrag(true) }}
-              onDragLeave={() => setPosterDrag(false)}
-              onDrop={e => {
-                e.preventDefault(); setPosterDrag(false)
-                handlePosterFile(e.dataTransfer.files[0])
-              }}
-            >
-              {posterUrl
-                ? <img src={posterUrl} alt="Event poster" style={S.posterImg} />
-                : (event.coverImage
-                    ? <img src={event.coverImage} alt={event.title} style={S.posterImg} />
-                    : <div style={S.posterPlaceholder}>
-                        <div style={S.posterIcon}>🖼</div>
-                        <div style={S.posterHint}>Click or drag to<br/>add poster image</div>
-                      </div>
-                  )
-              }
-              {/* always-visible edit badge */}
-              <div style={S.posterBadge}>
-                <span>📷</span>
-                <span>{posterUrl ? 'Change' : 'Add photo'}</span>
-              </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={e => handlePosterFile(e.target.files[0])}
-              />
+          {/* stats row */}
+          <div style={S.statsRow}>
+            <div style={S.statPill}>
+              <span style={S.statPillIcon}>₦</span>
+              <span>₦50 per vote</span>
             </div>
-
-            {/* vote count card */}
-            <div style={S.votesCard}>
-              <div style={S.votesNum}>{totalVotes.toLocaleString()}</div>
-              <div style={S.votesLbl}>Total Votes</div>
-              <div style={S.votesDivider} />
-              <div style={S.votesNum2}>{quantity}</div>
-              <div style={S.votesLbl}>Your selection</div>
+            <div style={S.statPill}>
+              <span style={S.statPillIcon}>🗳</span>
+              <span>{totalVotes.toLocaleString()} votes</span>
             </div>
           </div>
 
-          {/* info grid */}
-          <div style={{ ...S.infoGrid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
-            <InfoBox title="Event Details">
-              <Meta label="Event"  value={event.title} />
-              <Meta label="Date"   value={formatDateLong(event.startDate)} />
-              <Meta label="Time"   value={formatTimeRange(event.startTime, event.endTime)} />
-              <Meta label="Venue"  value={event.location || 'To be announced'} />
-            </InfoBox>
-            <InfoBox title="Award Category">
-              <Meta label="Award"     value={heroAward?.title || '—'} />
-              <Meta label="Nominee"   value={formatDisplay(currentNominee) || 'Select below'} />
-              <Meta label="Category"  value={heroAward?.description || '—'} />
-              <Meta label="Per vote"  value="₦50" />
-            </InfoBox>
-          </div>
-
-          {/* nominee selector */}
-          <div style={S.nomineeBox}>
-            <div style={S.boxTitle}>Choose a Nominee</div>
-            {heroNominees.length === 0
-              ? <p style={{ color:'#5a5a6a', fontSize:14 }}>No nominees added yet.</p>
-              : <div style={S.nomineeGrid}>
-                  {heroNominees.map(n => {
-                    const name   = typeof n === 'string' ? n : (n?.name || n)
-                    const active = formatDisplay(currentNominee) === formatDisplay(name)
-                    return (
-                      <button
-                        key={name}
-                        style={{ ...S.nomineePill, ...(active ? S.nomineePillOn : {}) }}
-                        onClick={() => {
-                          // prefer contestant slug if available
-                          const contestant = (heroAward?.contestants || []).find(c => c.name === name || c.slug === slugify(name))
-                          const nomineeSlugToUse = contestant ? contestant.slug : slugify(name)
-                          setSelected(p => ({ ...p, [activeKey]: name }))
-                          navigate(`/public/events/${eventId}/voting/${heroAward?.id}/${nomineeSlugToUse}`)
-                        }}
-                        disabled={votingId === activeKey}
-                      >
-                        {active && <span style={S.nomineeCheck}>✓</span>}
-                        {formatDisplay(name)}
-                      </button>
-                    )
-                  })}
+          {/* ── NOMINEE PHOTO + RANK ── */}
+          <div style={S.nomineePhotoCard}>
+            {nomImage
+              ? <img src={nomImage} alt={nomName} style={S.nomineePhoto}/>
+              : <div style={S.nomineePhotoFb}>
+                  <span style={{fontSize:72,fontWeight:900,color:'#c4b5fd',opacity:.6}}>
+                    {String(nomName||'?').charAt(0).toUpperCase()}
+                  </span>
                 </div>
             }
+            {/* overlay: name + vote count badge */}
+            <div style={S.nomineePhotoOverlay}>
+              <div style={S.nomineeNameOverlay}>{nomName}</div>
+              <div style={S.nomineeVoteBadge}>
+                <span style={{fontSize:22,fontWeight:900,color:'#c4b5fd',letterSpacing:'-1px',lineHeight:1}}>{totalVotes}</span>
+                <span style={{fontSize:11,color:'#9ca3af',fontWeight:600,textTransform:'uppercase',letterSpacing:'.5px'}}>Total Votes</span>
+              </div>
+            </div>
           </div>
 
-          {/* all awards list */}
-          {awards.length > 1 && (
-            <div style={S.allAwardsBox}>
-              <div style={S.boxTitle}>All Award Categories</div>
-              <div style={S.awardList}>
-                {awards.map(a => (
-                  <button
-                    key={a.id}
-                    style={{ ...S.awardItem, ...(a.id === heroAward?.id ? S.awardItemOn : {}) }}
-                    onClick={() => navigate(`/public/events/${eventId}/voting/${a.id}`)}
-                  >
-                    <div>
-                      <div style={S.awardItemTitle}>{a.title}</div>
-                      <div style={S.awardItemSub}>{a.voteCount || 0} votes · {Array.isArray(a.nominees) ? a.nominees.length : 0} nominees</div>
-                    </div>
-                    <span style={S.awardItemArrow}>›</span>
-                  </button>
-                ))}
+          {/* ── OTHER NOMINEES (if multiple) ── */}
+          {heroNominees.length>1&&(
+            <div style={S.otherNominees}>
+              <div style={S.otherNomineesLabel}>Other Nominees</div>
+              <div style={S.otherNomineesList}>
+                {heroNominees.map(n=>{
+                  const name    =typeof n==='string'?n:(extractNomineeName(n)||n?.name||'')
+                  const img     =typeof n==='object'?extractNomineeImageUrl(n):''
+                  const nSlug   =typeof n==='object'?(n.slug||slugify(name)):slugify(name)
+                  const isActive=formatDisplay(currentNominee)===formatDisplay(name)
+                  return (
+                    <button key={nSlug||name}
+                      style={{...S.otherNomineeBtn,...(isActive?S.otherNomineeBtnOn:{})}}
+                      onClick={()=>{
+                        setSelected(name)
+                        navigate(`/public/events/${eventId}/voting/${heroAward?.id}/${nSlug}`)
+                      }}>
+                      {img
+                        ?<img src={img} alt={name} style={S.otherNomineeAvatar}/>
+                        :<div style={S.otherNomineeAvatarFb}>{String(name).charAt(0).toUpperCase()}</div>
+                      }
+                      <span style={S.otherNomineeName}>{formatDisplay(name)}</span>
+                      {isActive&&<span style={S.otherNomineeCheck}>✓</span>}
+                    </button>
+                  )
+                })}
               </div>
+            </div>
+          )}
+
+          {/* ── EVENT DETAILS BOX ── */}
+          <div style={S.infoBox}>
+            <div style={S.infoBoxTitle}>Event Details</div>
+            <MetaRow label="Event"  value={event.title}/>
+            <MetaRow label="Date"   value={formatDateLong(event.startDate)}/>
+            <MetaRow label="Time"   value={formatTimeRange(event.startTime,event.endTime)}/>
+            <MetaRow label="Venue"  value={event.location||'To be announced'}/>
+          </div>
+
+          <div style={S.infoBox}>
+            <div style={S.infoBoxTitle}>Award Category</div>
+            <MetaRow label="Award"         value={heroAward?.title||'—'}/>
+            <MetaRow label="Category"      value={heroAward?.description||'—'}/>
+            <MetaRow label="Price per Vote" value="₦50"/>
+          </div>
+
+          {/* other award categories */}
+          {awards.length>1&&(
+            <div style={S.infoBox}>
+              <div style={S.infoBoxTitle}>Other Categories</div>
+              {awards.filter(a=>a.id!==heroAward?.id).map(a=>(
+                <button key={a.id}
+                  style={S.categoryLink}
+                  onClick={()=>navigate(`/public/events/${eventId}/voting/${a.id}`)}>
+                  {a.title}
+                  <span style={{marginLeft:'auto',opacity:.5}}>›</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
 
-        {/* ══ VOTE CARD ══ */}
-        <aside style={{ ...S.voteCard, position: isTablet ? 'static' : 'sticky' }}>
+        {/* ════════ RIGHT COLUMN — VOTE CARD ════════ */}
+        <aside style={{...S.voteCard,position:isMobile?'static':'sticky',top:80}}>
+
+          {/* selected nominee mini-header */}
           <div style={S.voteCardTop}>
-            <div style={S.voteHeart}>♥</div>
-            <h2 style={S.voteTitle}>Cast Your Vote</h2>
-            <p style={S.voteSub}>
-              Support <strong style={{ color:'#c4b5fd' }}>{formatDisplay(currentNominee) || 'your nominee'}</strong> with a secure Paystack payment.
-            </p>
+            {nomImage
+              ?<img src={nomImage} alt={nomName} style={S.voteCardAvatar}/>
+              :<div style={S.voteCardAvatarFb}>{String(nomName||'?').charAt(0).toUpperCase()}</div>
+            }
+            <div style={{flex:1,minWidth:0}}>
+              <div style={S.voteCardLabel}>Voting for</div>
+              <div style={S.voteCardName}>{nomName||'Select a nominee'}</div>
+              <div style={S.voteCardCategory}>{heroAward?.title}</div>
+            </div>
           </div>
 
-          {voteMsg && (
+          {/* message banner */}
+          {voteMsg&&(
             <div style={{
-              ...S.banner,
-              background: voteMsg.startsWith('✓') ? 'rgba(74,222,128,0.12)' : 'rgba(167,139,250,0.12)',
-              borderColor: voteMsg.startsWith('✓') ? 'rgba(74,222,128,0.3)' : 'rgba(167,139,250,0.3)',
-              color: voteMsg.startsWith('✓') ? '#4ade80' : '#ddd6fe',
-            }}>
-              {voteMsg}
-            </div>
+              ...S.msgBanner,
+              background:voteMsg.startsWith('✓')?'rgba(74,222,128,0.1)':'rgba(248,113,113,0.1)',
+              borderColor:voteMsg.startsWith('✓')?'rgba(74,222,128,0.25)':'rgba(248,113,113,0.25)',
+              color:voteMsg.startsWith('✓')?'#4ade80':'#fca5a5',
+            }}>{voteMsg}</div>
           )}
 
-          <div style={S.formFields}>
-            <Field label="Email Address">
-              <input
-                type="email"
-                value={form.email}
-                onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                placeholder="you@example.com"
-                style={S.input}
-                required
-              />
-            </Field>
+          <div style={S.voteForm}>
+            <div style={S.sectionHeading}>Cast Your Vote</div>
+            <p style={S.voteSubtitle}>
+              Support <strong style={{color:'#c4b5fd'}}>{nomName||'your nominee'}</strong> with a secure Paystack payment.
+            </p>
 
-            <Field label="Your Name">
-              <input
-                value={form.name}
-                onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-                placeholder="Auto-filled from email"
-                style={S.input}
-              />
-            </Field>
+            {/* email */}
+            <FormField label="Email Address *">
+              <input type="email" value={form.email}
+                onChange={e=>setForm(p=>({...p,email:e.target.value}))}
+                placeholder="you@example.com" style={S.input} required/>
+            </FormField>
 
-            <Field label="Number of Votes">
-              <div style={S.quantityRow}>
-                <button
-                  style={S.qBtn}
-                  onClick={() => setQuantities(p => ({ ...p, [activeKey]: Math.max(1, quantity - 1) }))}
-                >−</button>
-                <input
-                  type="number"
-                  min="1"
-                  value={quantity}
-                  onChange={e => setQuantities(p => ({ ...p, [activeKey]: Math.max(1, Number(e.target.value || 1)) }))}
-                  style={{ ...S.input, textAlign:'center', flex:1 }}
-                />
-                <button
-                  style={S.qBtn}
-                  onClick={() => setQuantities(p => ({ ...p, [activeKey]: quantity + 1 }))}
-                >+</button>
-              </div>
-            </Field>
+            {/* name */}
+            <FormField label="Your Name">
+              <input value={form.name}
+                onChange={e=>setForm(p=>({...p,name:e.target.value}))}
+                placeholder="Auto-filled from email" style={S.input}/>
+            </FormField>
 
-            {/* ══ DYNAMIC PAYMENT BREAKDOWN MOVED HERE ══ */}
-            <div style={S.breakdownCard}>
-              <div style={S.breakdownHead}>
-                <span style={S.breakdownIcon}>📊</span>
-                <span>Payment Breakdown</span>
+            {/* quantity stepper */}
+            <FormField label="Number of Votes">
+              <div style={S.qRow}>
+                <button style={S.qBtn} type="button"
+                  onClick={()=>setQuantity(q=>Math.max(1,q-1))}>−</button>
+                <input type="number" min="1" value={quantity}
+                  onChange={e=>setQuantity(Math.max(1,Number(e.target.value||1)))}
+                  style={{...S.input,textAlign:'center',flex:1}}/>
+                <button style={S.qBtn} type="button"
+                  onClick={()=>setQuantity(q=>q+1)}>+</button>
               </div>
-              <div style={S.breakdownRow}>
-                <span>Contestant:</span>
-                <strong>{formatDisplay(currentNominee) || 'Select nominee'}</strong>
+            </FormField>
+
+            {/* ── PAYMENT BREAKDOWN ── */}
+            <div style={S.breakdownBox}>
+              <div style={S.breakdownTitle}>Payment Breakdown</div>
+
+              {/* nominee preview */}
+              <div style={S.nomPreview}>
+                {nomImage
+                  ?<img src={nomImage} alt={nomName} style={S.nomPreviewImg}/>
+                  :<div style={S.nomPreviewFb}>{String(nomName||'?').charAt(0).toUpperCase()}</div>
+                }
+                <div>
+                  <div style={{fontSize:10,color:'#6b6b7a',textTransform:'uppercase',letterSpacing:'.5px',fontWeight:700,marginBottom:2}}>
+                    Current nominee
+                  </div>
+                  <div style={{fontSize:14,fontWeight:700,color:'#e8e8f0'}}>{nomName||'Select nominee'}</div>
+                </div>
               </div>
-              <div style={S.breakdownRow}>
-                <span>Category:</span>
-                <strong>{heroAward?.title || '—'}</strong>
-              </div>
-              <div style={S.breakdownRow}>
-                <span>Price per Vote:</span>
-                <strong>{formatMoney(50)}</strong>
-              </div>
-              <div style={S.breakdownRow}>
-                <span>Number of Votes:</span>
-                <strong>{quantity}</strong>
-              </div>
-              <div style={S.breakdownRow}>
-                <span>Subtotal:</span>
-                <strong>{formatMoney(subtotal)}</strong>
-              </div>
-              <div style={S.breakdownRow}>
-                <span>Transaction Fees:</span>
-                <strong>{formatMoney(transactionFee)}</strong>
+
+              <BRow label="Contestant"     value={nomName||'—'}/>
+              <BRow label="Contestant Votes" value={String(selectedVotes)}/>
+              <BRow label="Category"       value={heroAward?.title||'—'}/>
+              <BRow label="Price per Vote" value={formatMoney(50)}/>
+              <BRow label="Number of Votes" value={String(quantity)}/>
+              <BRow label="Subtotal"       value={formatMoney(subtotal)}/>
+              <BRow label="Transaction Fee" value={formatMoney(fee)}/>
+
+              <div style={S.totalRow}>
+                <span style={S.totalLabel}>Total Amount</span>
+                <span style={S.totalAmt}>{formatMoney(total)}</span>
               </div>
             </div>
 
-            {/* total */}
-            <div style={S.totalRow}>
-              <span style={S.totalLabel}>Total Amount</span>
-              <span style={S.totalAmount}>{formatMoney(totalAmount)}</span>
-            </div>
-
+            {/* CTA */}
             <button
-              style={{
-                ...S.voteBtn,
-                opacity: votingId === activeKey ? 0.6 : 1,
-                cursor:  votingId === activeKey ? 'not-allowed' : 'pointer',
-              }}
+              style={{...S.voteBtn,opacity:votingId===activeKey?0.55:1,cursor:votingId===activeKey?'not-allowed':'pointer'}}
               onClick={handleVote}
-              disabled={votingId === activeKey}
+              disabled={votingId===activeKey}
+              type="button"
             >
-              {votingId === activeKey ? 'Opening Paystack…' : `Vote for ${formatDisplay(currentNominee) || 'Nominee'} →`}
+              {votingId===activeKey?'Opening Paystack…':`Vote for ${nomName||'Nominee'} →`}
             </button>
 
             <div style={S.secureRow}>
-              <span style={S.secureDot} />
-              <span style={S.secureText}>Secured by Paystack · One-time payment</span>
+              <span style={{width:6,height:6,borderRadius:'50%',background:'#4ade80',display:'inline-block',flexShrink:0}}/>
+              <span style={{fontSize:12,color:'#6b6b7a'}}>Secure payment via Paystack</span>
+            </div>
+
+            {/* repeat event + award info below form, like eventbry */}
+            <div style={{...S.infoBox,marginTop:8}}>
+              <div style={S.infoBoxTitle}>Event Details</div>
+              <MetaRow label="Event"  value={event.title}/>
+              <MetaRow label="Date"   value={formatDateLong(event.startDate)}/>
+              <MetaRow label="Time"   value={formatTimeRange(event.startTime,event.endTime)}/>
+              <MetaRow label="Venue"  value={event.location||'To be announced'}/>
+            </div>
+            <div style={{...S.infoBox,marginTop:8}}>
+              <div style={S.infoBoxTitle}>Award Category</div>
+              <MetaRow label="Award"          value={heroAward?.title||'—'}/>
+              <MetaRow label="Category"       value={heroAward?.description||'—'}/>
+              <MetaRow label="Price per Vote" value="₦50"/>
             </div>
           </div>
         </aside>
-      </main>
+      </div>
     </div>
   )
 }
@@ -541,268 +509,273 @@ export default function VotingPage() {
 /* ── tiny sub-components ── */
 function Shell({ msg, label, onAction }) {
   return (
-    <div style={{ minHeight:'100vh', display:'grid', placeItems:'center', background:'#0e0e14', color:'#e8e8f0', fontFamily:"'DM Sans',system-ui,sans-serif", padding: 16 }}>
-      <div style={{ padding:32, borderRadius:20, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', textAlign:'center', width:'100%', maxWidth:400, boxSizing:'border-box' }}>
-        <p style={{ fontSize:16, marginBottom:16, color:'#9a9aaa' }}>{msg}</p>
-        {onAction && <button onClick={onAction} style={{ background:'rgba(255,255,255,0.08)', color:'#e8e8f0', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, padding:'10px 20px', cursor:'pointer', fontFamily:"'DM Sans',system-ui,sans-serif" }}>{label}</button>}
+    <div style={{minHeight:'100vh',display:'grid',placeItems:'center',background:'#0c0c10',
+      color:'#e8e8f0',fontFamily:"'DM Sans',system-ui,sans-serif",padding:16}}>
+      <div style={{padding:32,borderRadius:20,background:'rgba(255,255,255,0.05)',
+        border:'1px solid rgba(255,255,255,0.08)',textAlign:'center',maxWidth:400,
+        width:'100%',boxSizing:'border-box'}}>
+        <p style={{fontSize:16,marginBottom:16,color:'#9ca3af'}}>{msg}</p>
+        {onAction&&<button onClick={onAction} style={{background:'rgba(255,255,255,0.08)',
+          color:'#e8e8f0',border:'1px solid rgba(255,255,255,0.1)',borderRadius:10,
+          padding:'10px 20px',cursor:'pointer',fontFamily:"'DM Sans',system-ui,sans-serif"}}>{label}</button>}
       </div>
     </div>
   )
 }
 
-function InfoBox({ title, children }) {
+function FormField({ label, children }) {
   return (
-    <div style={S.infoBox}>
-      <div style={S.boxTitle}>{title}</div>
+    <div style={{display:'flex',flexDirection:'column',gap:5,marginBottom:12}}>
+      <span style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',color:'#6b6b7a'}}>
+        {label}
+      </span>
       {children}
     </div>
   )
 }
 
-// Fixed minor bug where labels inside labels were causing nested activation problems
-function Meta({ label, value }) {
+function MetaRow({ label, value }) {
   return (
-    <div style={S.metaRow}>
-      <span style={S.metaLabel}>{label}</span>
-      <span style={S.metaValue}>{value}</span>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',
+      gap:12,padding:'8px 0',borderBottom:'1px solid rgba(255,255,255,0.05)'}}>
+      <span style={{fontSize:12,color:'#6b6b7a',fontWeight:600,flexShrink:0}}>{label}</span>
+      <span style={{fontSize:13,color:'#c0c0d0',fontWeight:500,textAlign:'right',lineHeight:1.4}}>{value}</span>
     </div>
   )
 }
 
-function Field({ label, children }) {
+function BRow({ label, value }) {
   return (
-    <div style={S.field}>
-      <span style={S.fieldLabel}>{label}</span>
-      {children}
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+      fontSize:13,color:'#9ca3af',padding:'4px 0'}}>
+      <span>{label}:</span>
+      <strong style={{color:'#e8e8f0'}}>{value}</strong>
     </div>
   )
 }
 
 /* ══════════════════════════════════════
-   STYLES
+   STYLES — keeps your dark bg + purple
 ══════════════════════════════════════ */
 const S = {
   page: {
-    minHeight: '100vh',
-    background: 'linear-gradient(180deg, #0e0a1a 0%, #0e0e14 40%, #0b0b10 100%)',
-    color: '#e8e8f0',
-    fontFamily: "'DM Sans', system-ui, sans-serif",
-    WebkitFontSmoothing: 'antialiased',
+    minHeight:'100vh',
+    background:'#0c0c10',
+    color:'#e8e8f0',
+    fontFamily:"'DM Sans',system-ui,sans-serif",
+    WebkitFontSmoothing:'antialiased',
   },
 
   /* topbar */
   topbar: {
-    height: 60,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '0 24px',
-    background: 'rgba(14,10,26,0.85)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    position: 'sticky',
-    top: 0,
-    zIndex: 100,
+    height:56,display:'flex',alignItems:'center',justifyContent:'space-between',
+    padding:'0 24px',
+    background:'rgba(12,12,16,0.92)',
+    backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
+    borderBottom:'1px solid rgba(255,255,255,0.06)',
+    position:'sticky',top:0,zIndex:100,
   },
-  brand:     { display:'flex', alignItems:'center', gap:10 },
-  brandMark: { width:32, height:32, borderRadius:'50%', background:'linear-gradient(135deg,#7c3aed,#a78bfa)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900, fontSize:14 },
-  brandText: { fontSize:16, fontWeight:700, letterSpacing:'-.3px' },
-  secureTag: { display:'flex', alignItems:'center', gap:7, fontSize:13, fontWeight:600, color:'#6b6b7a' },
-  secureDot: { width:7, height:7, borderRadius:'50%', background:'#4ade80', flexShrink:0 },
-
-  /* hero */
-  hero: {
-    background: 'linear-gradient(110deg, #4c1d95 0%, #5b21b6 45%, #6d28d9 100%)',
-    textAlign: 'center',
+  brandMark: {
+    fontFamily:"'Arial Black',sans-serif",fontWeight:900,fontSize:18,
+    letterSpacing:3,color:'rgba(245,240,232,0.25)',
   },
-  heroChip:      { display:'inline-block', background:'rgba(255,255,255,0.15)', borderRadius:999, padding:'6px 16px', fontSize:12.5, fontWeight:700, letterSpacing:'.5px', textTransform:'uppercase', marginBottom:16, color:'#e9d5ff' },
-  heroTitle:     { fontSize:'clamp(24px, 5vw, 42px)', fontWeight:900, letterSpacing:'-1px', lineHeight:1.1, margin:'0 0 10px', color:'#fff' },
-  heroHighlight: { color:'#c4b5fd' },
-  heroSub:       { fontSize:15, color:'rgba(255,255,255,0.7)', marginBottom:24, padding: '0 16px' },
-  heroPills:     { display:'flex', justifyContent:'center', gap:8, flexWrap:'wrap', padding: '0 12px' },
-  heroPill:      { background:'rgba(255,255,255,0.12)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:999, padding:'6px 12px', fontSize:12, fontWeight:600, color:'#e9d5ff' },
+  secureTag:  { display:'flex',alignItems:'center',gap:7 },
+  secureDot:  { width:7,height:7,borderRadius:'50%',background:'#4ade80',flexShrink:0 },
 
-  /* body layout */
-  body: {
-    maxWidth: 1160,
-    display: 'grid',
-    gap: 20,
-    alignItems: 'start',
-    boxSizing: 'border-box',
+  /* columns */
+  leftCol: { display:'flex',flexDirection:'column',gap:16 },
+
+  /* category badge above title */
+  categoryBadge: {
+    alignSelf:'flex-start',
+    background:'rgba(167,139,250,0.12)',
+    border:'1px solid rgba(167,139,250,0.25)',
+    borderRadius:999,
+    padding:'5px 14px',
+    fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',
+    color:'#c4b5fd',
   },
-  left: { display:'flex', flexDirection:'column', gap:16, width: '100%', boxSizing: 'border-box' },
-
-  /* poster */
-  posterRow: { display:'flex', gap:16, alignItems:'stretch' },
-  posterWrap: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    position: 'relative',
-    cursor: 'pointer',
-    background: '#1a1a24',
-    flexShrink: 0,
-    transition: 'border-color .2s',
+  pageTitle: {
+    fontSize:'clamp(22px,3.5vw,34px)',fontWeight:900,
+    letterSpacing:'-1px',lineHeight:1.1,margin:0,color:'#f0f0f4',
   },
-  posterImg: { width:'100%', height:'100%', objectFit:'cover', display:'block' },
-  posterPlaceholder: { width:'100%', height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8 },
-  posterIcon: { fontSize:32, opacity:.4 },
-  posterHint: { fontSize:12, color:'#5a5a6a', textAlign:'center', lineHeight:1.5 },
-  posterBadge: {
-    position: 'absolute',
-    bottom: 8,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    background: 'rgba(0,0,0,0.75)',
-    backdropFilter: 'blur(6px)',
-    borderRadius: 999,
-    padding: '5px 12px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 5,
-    fontSize: 11.5,
-    fontWeight: 700,
-    color: '#c4b5fd',
-    whiteSpace: 'nowrap',
-    border: '1px solid rgba(167,139,250,0.3)',
+  pageTitleAccent: { color:'#c4b5fd' },
+  eventSubtitle:   { fontSize:14,color:'rgba(255,255,255,0.55)',margin:0 },
+  awardDesc:       { fontSize:13,color:'#6b6b7a',margin:0,lineHeight:1.6 },
+
+  /* stats pills */
+  statsRow: { display:'flex',gap:8,flexWrap:'wrap' },
+  statPill: {
+    display:'inline-flex',alignItems:'center',gap:6,
+    background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.08)',
+    borderRadius:999,padding:'6px 14px',fontSize:13,fontWeight:600,color:'#c4b5fd',
+  },
+  statPillIcon: { fontSize:12 },
+
+  /* nominee photo */
+  nomineePhotoCard: {
+    position:'relative',width:'100%',aspectRatio:'3/4',borderRadius:20,overflow:'hidden',
+    background:'#161620',border:'1px solid rgba(167,139,250,0.15)',
+    boxShadow:'0 8px 32px rgba(0,0,0,0.5)',
+  },
+  nomineePhoto: {
+    position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',objectPosition:'center top',
+    display:'block',
+  },
+  nomineePhotoFb: {
+    position:'absolute',inset:0,width:'100%',height:'100%',background:'rgba(167,139,250,0.08)',
+    display:'flex',alignItems:'center',justifyContent:'center',
+  },
+  nomineePhotoOverlay: {
+    position:'absolute',bottom:0,left:0,right:0,
+    background:'linear-gradient(0deg,rgba(12,12,16,0.95) 0%,rgba(12,12,16,0.6) 50%,transparent 100%)',
+    padding:'32px 20px 20px',
+    display:'flex',flexDirection:'column',gap:10,
+  },
+  nomineeNameOverlay: {
+    fontSize:'clamp(18px,2.5vw,26px)',fontWeight:900,color:'#fff',
+    letterSpacing:'-.5px',lineHeight:1.1,
+    textShadow:'0 2px 12px rgba(0,0,0,0.8)',
+  },
+  nomineeVoteBadge: {
+    alignSelf:'flex-start',
+    background:'rgba(12,12,16,0.7)',
+    border:'1px solid rgba(167,139,250,0.3)',
+    borderRadius:12,padding:'10px 16px',
+    display:'flex',flexDirection:'column',gap:2,
+    backdropFilter:'blur(10px)',
   },
 
-  /* votes card */
-  votesCard: {
-    flex: 1,
-    background: '#1a1a24',
-    border: '1px solid rgba(255,255,255,0.07)',
-    borderRadius: 20,
-    padding: '20px 24px',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textAlign: 'center',
-    gap: 4,
-    minHeight: 180,
-    boxSizing: 'border-box',
+  /* other nominees */
+  otherNominees:     { background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:16,padding:'16px 18px' },
+  otherNomineesLabel:{ fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',color:'#6b6b7a',marginBottom:12 },
+  otherNomineesList: { display:'flex',flexDirection:'column',gap:6 },
+  otherNomineeBtn: {
+    display:'flex',alignItems:'center',gap:12,padding:'10px 14px',
+    borderRadius:12,border:'1px solid rgba(255,255,255,0.06)',
+    background:'rgba(255,255,255,0.02)',cursor:'pointer',
+    fontFamily:"'DM Sans',system-ui,sans-serif",textAlign:'left',
+    transition:'all .15s',
   },
-  votesNum:    { fontSize: 36, fontWeight: 900, letterSpacing: '-1px', color: '#c4b5fd', lineHeight: 1 },
-  votesLbl:    { fontSize: 11, color: '#5a5a6a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px' },
-  votesDivider:{ width: 32, height: 1, background: 'rgba(255,255,255,0.07)', margin: '10px 0' },
-  votesNum2:   { fontSize: 24, fontWeight: 800, letterSpacing: '-1px', color: '#a78bfa', lineHeight: 1 },
+  otherNomineeBtnOn: {
+    background:'rgba(167,139,250,0.1)',borderColor:'rgba(167,139,250,0.35)',
+  },
+  otherNomineeAvatar: { width:36,height:36,borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'1px solid rgba(255,255,255,0.1)' },
+  otherNomineeAvatarFb: { width:36,height:36,borderRadius:'50%',background:'rgba(167,139,250,0.15)',color:'#c4b5fd',display:'grid',placeItems:'center',fontSize:14,fontWeight:800,flexShrink:0 },
+  otherNomineeName: { flex:1,fontSize:14,fontWeight:600,color:'#e8e8f0' },
+  otherNomineeCheck:{ fontSize:13,color:'#a78bfa',fontWeight:900 },
 
-  /* info */
-  infoGrid: { display:'grid', gap:12 },
-  infoBox: { background:'#1a1a24', border:'1px solid rgba(255,255,255,0.07)', borderRadius:16, padding:'18px 20px', boxSizing: 'border-box' },
-  boxTitle: { fontSize:14, fontWeight:800, color:'#e8e8f0', marginBottom:12, letterSpacing:'-.2px' },
-  metaRow:  { display:'flex', flexDirection:'column', marginBottom:8 },
-  metaLabel:{ fontSize:10.5, fontWeight:700, color:'#5a5a6a', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:2 },
-  metaValue:{ fontSize:13.5, color:'#b0b0be', fontWeight:500, lineHeight:1.4 },
+  /* info boxes */
+  infoBox: {
+    background:'rgba(255,255,255,0.03)',
+    border:'1px solid rgba(255,255,255,0.07)',
+    borderRadius:14,padding:'16px 18px',
+  },
+  infoBoxTitle: {
+    fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',
+    color:'#6b6b7a',marginBottom:10,
+  },
 
-  /* nominee */
-  nomineeBox: { background:'#1a1a24', border:'1px solid rgba(255,255,255,0.07)', borderRadius:16, padding:'18px 20px', boxSizing: 'border-box' },
-  nomineeGrid:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:4 },
-  nomineePill:{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', color:'#9a9aaa', borderRadius:999, padding:'8px 16px', fontSize:13, fontWeight:600, cursor:'pointer', transition:'all .15s', display:'flex', alignItems:'center', gap:6, fontFamily:"'DM Sans',system-ui,sans-serif" },
-  nomineePillOn:{ background:'rgba(167,139,250,0.15)', borderColor:'rgba(167,139,250,0.4)', color:'#e9d5ff' },
-  nomineeCheck: { color:'#a78bfa', fontWeight:900, fontSize:12 },
+  categoryLink: {
+    display:'flex',alignItems:'center',gap:8,width:'100%',
+    padding:'10px 0',borderBottom:'1px solid rgba(255,255,255,0.05)',
+    fontSize:13,fontWeight:600,color:'#c0c0d0',cursor:'pointer',
+    fontFamily:"'DM Sans',system-ui,sans-serif",background:'none',border:'none',
+    textAlign:'left',
+  },
 
-  /* awards list */
-  allAwardsBox: { background:'#1a1a24', border:'1px solid rgba(255,255,255,0.07)', borderRadius:16, padding:'18px 20px', boxSizing: 'border-box' },
-  awardList:  { display:'flex', flexDirection:'column', gap:8, marginTop:4 },
-  awardItem:  { display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:12, padding:'12px 16px', cursor:'pointer', transition:'background .15s', fontFamily:"'DM Sans',system-ui,sans-serif", textAlign:'left' },
-  awardItemOn:{ background:'rgba(167,139,250,0.10)', borderColor:'rgba(167,139,250,0.3)' },
-  awardItemTitle:{ fontSize:14, fontWeight:700, color:'#e8e8f0', marginBottom:2 },
-  awardItemSub:  { fontSize:12, color:'#5a5a6a' },
-  awardItemArrow:{ fontSize:18, color:'#5a5a6a' },
-
-  /* vote card container */
+  /* vote card */
   voteCard: {
-    background: '#1a1a24',
-    border: '1px solid rgba(167,139,250,0.2)',
-    borderRadius: 20,
-    overflow: 'hidden',
-    top: 80,
-    boxShadow: '0 8px 40px rgba(124,58,237,0.15)',
-    width: '100%',
-    boxSizing: 'border-box',
+    background:'#161620',
+    border:'1px solid rgba(167,139,250,0.2)',
+    borderRadius:20,overflow:'hidden',
+    boxShadow:'0 8px 40px rgba(124,58,237,0.12)',
+    boxSizing:'border-box',width:'100%',
   },
-  voteCardTop: { background:'linear-gradient(135deg,#2e1065,#1e1030)', padding:'28px 24px 20px', textAlign:'center', borderBottom:'1px solid rgba(167,139,250,0.15)' },
-  voteHeart:  { fontSize:28, marginBottom:10 },
-  voteTitle:  { fontSize:22, fontWeight:800, letterSpacing:'-.5px', color:'#f0f0f4', margin:'0 0 8px' },
-  voteSub:    { fontSize:14, color:'rgba(255,255,255,0.6)', lineHeight:1.55, margin:0 },
+  voteCardTop: {
+    display:'flex',alignItems:'center',gap:14,
+    padding:'20px 22px',
+    background:'linear-gradient(135deg,#1e1030,#2a1050)',
+    borderBottom:'1px solid rgba(167,139,250,0.15)',
+  },
+  voteCardAvatar:   { width:52,height:52,borderRadius:'50%',objectFit:'cover',border:'2px solid rgba(167,139,250,0.4)',flexShrink:0 },
+  voteCardAvatarFb: { width:52,height:52,borderRadius:'50%',background:'rgba(167,139,250,0.15)',color:'#c4b5fd',display:'grid',placeItems:'center',fontSize:20,fontWeight:900,border:'2px solid rgba(167,139,250,0.3)',flexShrink:0 },
+  voteCardLabel:    { fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',color:'#9ca3af',marginBottom:2 },
+  voteCardName:     { fontSize:17,fontWeight:800,color:'#f0f0f4',letterSpacing:'-.3px',lineHeight:1.2 },
+  voteCardCategory: { fontSize:12,color:'#9ca3af',marginTop:2 },
 
-  banner: { margin:'16px 24px 0', padding:'11px 14px', borderRadius:12, border:'1px solid', fontSize:13, fontWeight:600, lineHeight:1.5 },
-  formFields: { padding:'20px 24px 24px', display:'flex', flexDirection:'column', gap:0 },
-  field:      { display:'flex', flexDirection:'column', gap:5, marginBottom:14 },
-  fieldLabel: { fontSize:11.5, fontWeight:700, color:'#5a5a6a', textTransform:'uppercase', letterSpacing:'.5px' },
-  
+  msgBanner: {
+    margin:'12px 22px 0',padding:'10px 14px',borderRadius:10,
+    border:'1px solid',fontSize:13,fontWeight:600,lineHeight:1.5,
+  },
+
+  voteForm: { padding:'20px 22px 24px',display:'flex',flexDirection:'column',gap:0 },
+  sectionHeading: {
+    fontSize:18,fontWeight:900,color:'#f0f0f4',
+    letterSpacing:'-.3px',marginBottom:6,
+  },
+  voteSubtitle: { fontSize:13,color:'#9ca3af',lineHeight:1.6,marginBottom:18 },
+
   input: {
-    width: '100%',
-    boxSizing: 'border-box',
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 10,
-    padding: '11px 14px',
-    fontSize: 14,
-    color: '#e8e8f0',
-    outline: 'none',
-    fontFamily: "'DM Sans',system-ui,sans-serif",
-    transition: 'border-color .15s',
+    width:'100%',boxSizing:'border-box',
+    background:'rgba(255,255,255,0.05)',
+    border:'1px solid rgba(255,255,255,0.09)',
+    borderRadius:10,padding:'11px 14px',
+    fontSize:14,color:'#e8e8f0',outline:'none',
+    fontFamily:"'DM Sans',system-ui,sans-serif",
   },
 
-  quantityRow: { display:'flex', alignItems:'center', gap:8 },
-  qBtn: { width:40, height:40, borderRadius:10, background:'rgba(167,139,250,0.12)', border:'1px solid rgba(167,139,250,0.2)', color:'#c4b5fd', fontSize:20, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontFamily:"'DM Sans',system-ui,sans-serif" },
-
-  /* payment breakdown table styling */
-  breakdownCard: {
-    background: 'rgba(255, 255, 255, 0.02)',
-    border: '1px solid rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
-    padding: '14px 16px',
-    marginTop: 6,
-    marginBottom: 16,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-  },
-  breakdownHead: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    fontSize: 12,
-    fontWeight: 700,
-    color: '#a78bfa',
-    textTransform: 'uppercase',
-    letterSpacing: '.3px',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-    paddingBottom: 8,
-  },
-  breakdownIcon: { fontSize: 14 },
-  breakdownRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: 13,
-    color: '#9a9aaa',
+  qRow: { display:'flex',alignItems:'center',gap:8 },
+  qBtn: {
+    width:40,height:40,borderRadius:10,
+    background:'rgba(167,139,250,0.1)',
+    border:'1px solid rgba(167,139,250,0.2)',
+    color:'#c4b5fd',fontSize:20,fontWeight:700,
+    cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',
+    flexShrink:0,fontFamily:"'DM Sans',system-ui,sans-serif",
   },
 
-  totalRow:   { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 0', borderTop:'1px solid rgba(255,255,255,0.06)', borderBottom:'1px solid rgba(255,255,255,0.06)', marginBottom:16 },
-  totalLabel: { fontSize:12, fontWeight:700, color:'#5a5a6a', textTransform:'uppercase', letterSpacing:'.5px' },
-  totalAmount:{ fontSize:22, fontWeight:900, letterSpacing:'-1px', color:'#c4b5fd' },
+  /* breakdown */
+  breakdownBox: {
+    background:'rgba(255,255,255,0.03)',
+    border:'1px solid rgba(255,255,255,0.07)',
+    borderRadius:12,padding:'14px 16px',
+    display:'flex',flexDirection:'column',gap:6,
+    marginBottom:14,marginTop:4,
+  },
+  breakdownTitle: {
+    fontSize:12,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',
+    color:'#a78bfa',marginBottom:6,
+    paddingBottom:8,borderBottom:'1px solid rgba(255,255,255,0.06)',
+  },
+  nomPreview: {
+    display:'flex',alignItems:'center',gap:10,
+    padding:'10px 12px',borderRadius:10,
+    background:'rgba(255,255,255,0.04)',
+    border:'1px solid rgba(255,255,255,0.06)',
+    marginBottom:6,
+  },
+  nomPreviewImg: { width:40,height:40,borderRadius:'50%',objectFit:'cover',flexShrink:0 },
+  nomPreviewFb:  { width:40,height:40,borderRadius:'50%',background:'rgba(167,139,250,0.15)',color:'#c4b5fd',display:'grid',placeItems:'center',fontWeight:800,flexShrink:0 },
+
+  totalRow: {
+    display:'flex',justifyContent:'space-between',alignItems:'center',
+    paddingTop:10,borderTop:'1px solid rgba(255,255,255,0.08)',marginTop:4,
+  },
+  totalLabel: { fontSize:12,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',color:'#6b6b7a' },
+  totalAmt:   { fontSize:24,fontWeight:900,color:'#c4b5fd',letterSpacing:'-1px' },
 
   voteBtn: {
-    width: '100%',
-    background: 'linear-gradient(90deg, #7c3aed, #a78bfa)',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 12,
-    padding: '14px 0',
-    fontSize: 15,
-    fontWeight: 800,
-    letterSpacing: '-.2px',
-    cursor: 'pointer',
-    marginBottom: 14,
-    fontFamily: "'DM Sans',system-ui,sans-serif",
-    boxShadow: '0 4px 20px rgba(124,58,237,0.35)',
-    transition: 'opacity .15s, transform .15s',
+    width:'100%',
+    background:'linear-gradient(90deg,#7c3aed,#a78bfa)',
+    color:'#fff',border:'none',borderRadius:12,
+    padding:'14px 0',fontSize:15,fontWeight:800,letterSpacing:'-.2px',
+    cursor:'pointer',marginBottom:10,
+    fontFamily:"'DM Sans',system-ui,sans-serif",
+    boxShadow:'0 4px 20px rgba(124,58,237,0.35)',
+    transition:'opacity .15s,transform .15s',
   },
-
-  secureRow: { display:'flex', alignItems:'center', justifyContent:'center', gap:7 },
-  secureText:{ fontSize:12, color:'#5a5a6a', fontWeight:500 },
+  secureRow: {
+    display:'flex',alignItems:'center',justifyContent:'center',gap:7,marginBottom:16,
+  },
 }

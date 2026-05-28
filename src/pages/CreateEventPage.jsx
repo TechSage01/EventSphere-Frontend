@@ -21,30 +21,49 @@ const THEMES = [
   { id: 'ocean',     label: 'Ocean',     bg: ['#0a1628','#061a2e'],  accent: '#38bdf8' },
   { id: 'forest',    label: 'Forest',    bg: ['#0d2110','#0a1a0d'],  accent: '#4ade80' },
   { id: 'rose',      label: 'Rose',      bg: ['#2d0a1a','#1a0a1a'],  accent: '#fb7185' },
+  { id: 'black',     label: 'Black',     bg: ['#000000','#060606'],  accent: '#ffffff' },
 ]
 
 export default function CreateEventPage() {
   const navigate = useNavigate()
   const API_BASE = '/api'
+  const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
+
+  useEffect(() => {
+    function handleResize() {
+      setViewportWidth(window.innerWidth)
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Order fixed: Narrowest conditions must be checked first
+  const responsive = viewportWidth <= 480 ? mobileStyles : viewportWidth <= 768 ? tabletStyles : null
+  const isMiniMobile = viewportWidth <= 360
 
   /* form state */
-  const [name,        setName]        = useState('')
+  const [name,         setName]        = useState('')
   const [startDate,   setStartDate]   = useState(today())
   const [startTime,   setStartTime]   = useState(nowHour())
   const [endDate,     setEndDate]     = useState(today())
   const [endTime,     setEndTime]     = useState(todayPlus1h())
-  const [location,    setLocation]    = useState('')
+  const [location,     setLocation]    = useState('')
   const [description, setDescription] = useState('')
-  const [isPublic,    setIsPublic]    = useState(true)
+  const [isPublic,     setIsPublic]    = useState(true)
   const [ticketPrice, setTicketPrice] = useState('Free')
+  const [ticketVipPrice, setTicketVipPrice] = useState('')
+  const [ticketTablePrice, setTicketTablePrice] = useState('')
+  const [ticketVipError, setTicketVipError] = useState('')
+  const [ticketTableError, setTicketTableError] = useState('')
   const [requireApproval, setRequireApproval] = useState(false)
-  const [capacity,    setCapacity]    = useState('Unlimited')
-  const [themeIdx,    setThemeIdx]    = useState(0)
+  const [capacity,     setCapacity]    = useState('Unlimited')
+  const [themeIdx,     setThemeIdx]    = useState(0)
   const [editingPrice, setEditingPrice] = useState(false)
   const [editingCap,   setEditingCap]   = useState(false)
-  const [submitting,  setSubmitting]  = useState(false)
+  const [submitting,   setSubmitting]  = useState(false)
   const [coverFile,   setCoverFile]   = useState(null)
-  const [coverUrl,    setCoverUrl]    = useState(null)
+  const [coverUrl,     setCoverUrl]    = useState(null)
   const [coverImageData, setCoverImageData] = useState('')
   const fileRef = useRef()
 
@@ -93,6 +112,13 @@ export default function CreateEventPage() {
     reader.readAsDataURL(f)
   }
 
+    function formatPriceInput(val) {
+      const cleaned = String(val || '').replace(/[^0-9.]/g, '').trim()
+      if (!cleaned) return ''
+      const n = Math.round(Number(cleaned))
+      return Number.isFinite(n) ? String(n) : ''
+    }
+
   /* submit */
   async function handleSubmit(e) {
     e.preventDefault()
@@ -104,6 +130,14 @@ export default function CreateEventPage() {
         name, title: name, startDate, startTime, endDate, endTime,
         location, description, isPublic, ticketPrice,
         requireApproval, capacity, theme: theme.id,
+        ticketPrices: (() => {
+          const tp = {}
+          const vip = parseFloat(String(ticketVipPrice || '').trim())
+          const table = parseFloat(String(ticketTablePrice || '').trim())
+          if (!Number.isNaN(vip) && vip > 0) tp.vip = vip
+          if (!Number.isNaN(table) && table > 0) tp.table = table
+          return Object.keys(tp).length ? tp : null
+        })(),
         coverImage: coverImageData,
       }
       const res = await fetch(`${API_BASE}/events`, {
@@ -117,7 +151,13 @@ export default function CreateEventPage() {
       const contentType = res.headers.get('content-type') || ''
       const data = contentType.includes('application/json') ? await res.json() : { message: await res.text() }
       if (!res.ok) throw new Error(data.message || 'Failed to create event')
-      navigate(`/events/${data.event.id}`)
+
+      const createdEvent = data.event || data.data?.event || data.data || data
+      if (!createdEvent?.id) {
+        throw new Error('Event created, but the server response did not include an event id.')
+      }
+
+      navigate(`/events/${createdEvent.id}`)
     } catch (err) {
       console.error(err)
     } finally {
@@ -129,35 +169,38 @@ export default function CreateEventPage() {
   const bgGrad = `linear-gradient(135deg, ${theme.bg[0]} 0%, ${theme.bg[1]} 100%)`
 
   return (
-    <div style={{ ...S.shell, background: bgGrad }}>
+    <div style={{ ...S.shell, ...(responsive?.shell || {}), background: bgGrad }}>
 
       {/* ── TOPBAR ── */}
-      <header style={S.topbar}>
-        <nav style={S.topLeft}>
+      <header style={{ ...S.topbar, ...(responsive?.topbar || {}) }}>
+        <nav style={{ ...S.topLeft, ...(responsive?.topLeft || {}) }}>
           <span style={{ ...S.starLogo, color: theme.accent }}>✦</span>
-          <a href="/events"    style={S.navLink}><span style={S.navIcon}>▦</span> Events</a>
-          <a href="/calendars" style={{ ...S.navLink, color: '#5a7a7a' }}><span style={S.navIcon}>📅</span> Calendars</a>
-          <a href="/discover"  style={{ ...S.navLink, color: '#5a7a7a' }}><span style={S.navIcon}>◎</span> Discover</a>
+          <a href="/events"    style={S.navLink}><span style={S.navIcon}>▦</span> {viewportWidth > 580 && 'Events'}</a>
+          <a href="/calendars" style={{ ...S.navLink, color: '#5a7a7a' }}><span style={S.navIcon}>📅</span> {viewportWidth > 580 && 'Calendars'}</a>
+          <a href="/discover"  style={{ ...S.navLink, color: '#5a7a7a' }}><span style={S.navIcon}>◎</span> {viewportWidth > 580 && 'Discover'}</a>
         </nav>
-        <div style={S.topRight}>
-          <span style={S.timeChip}>{new Intl.DateTimeFormat('en-NG',{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Lagos',timeZoneName:'short'}).format(new Date())}</span>
-          <button style={{ ...S.createBtn, background: theme.accent, color: '#0a0a0a' }}>
-            Create Event
+        <div style={{ ...S.topRight, ...(responsive?.topRight || {}) }}>
+          {viewportWidth > 400 && (
+            <span style={S.timeChip}>{new Intl.DateTimeFormat('en-NG',{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Lagos',timeZoneName:'short'}).format(new Date())}</span>
+          )}
+          <button style={{ ...S.createBtn, background: theme.accent, color: '#0a0a0a', ...(responsive?.createBtn || {}) }}>
+            {viewportWidth <= 480 ? 'Create' : 'Create Event'}
           </button>
           <div style={S.avatar}>🙂</div>
         </div>
       </header>
 
       {/* ── BODY ── */}
-      <form onSubmit={handleSubmit} style={S.body}>
+      <form onSubmit={handleSubmit} style={{ ...S.body, ...(responsive?.body || {}) }}>
 
         {/* ── LEFT COLUMN ── */}
-        <div style={S.leftCol}>
+        <div style={{ ...S.leftCol, ...(responsive?.leftCol || {}) }}>
 
           {/* cover image */}
           <div
             style={{
               ...S.coverBox,
+              ...(responsive?.coverBox || {}),
               background: coverUrl
                 ? `url(${coverUrl}) center/cover`
                 : `linear-gradient(135deg, ${theme.accent}22 0%, ${theme.bg[1]} 100%)`,
@@ -167,8 +210,7 @@ export default function CreateEventPage() {
           >
             {!coverUrl && (
               <div style={S.coverPlaceholder}>
-                {/* abstract shape */}
-                <svg width="140" height="140" viewBox="0 0 140 140" fill="none" style={{ opacity: .55 }}>
+                <svg width="140" height="140" viewBox="0 0 140 140" fill="none" style={{ opacity: .55, transform: viewportWidth <= 480 ? 'scale(0.8)' : 'none' }}>
                   <ellipse cx="70" cy="70" rx="40" ry="55" stroke={theme.accent} strokeWidth="2" fill="none"/>
                   <ellipse cx="70" cy="70" rx="55" ry="30" stroke={theme.accent} strokeWidth="1.5" fill="none" strokeDasharray="4 4"/>
                   <circle cx="70" cy="70" r="8" fill={theme.accent} opacity=".5"/>
@@ -177,7 +219,6 @@ export default function CreateEventPage() {
                 </svg>
               </div>
             )}
-            {/* camera button */}
             <button
               type="button"
               style={{ ...S.cameraBtn, background: theme.accent }}
@@ -190,7 +231,7 @@ export default function CreateEventPage() {
           </div>
 
           {/* theme picker */}
-          <div style={S.themeRow}>
+          <div style={{ ...S.themeRow, ...(responsive?.themeRow || {}) }}>
             <div style={{ ...S.themePreview, background: `linear-gradient(135deg, ${theme.bg[0]}, ${theme.bg[1]})`, border: `1px solid ${theme.accent}40` }}>
               <div style={{ width:14, height:10, background: theme.accent, borderRadius:2, marginBottom:4, opacity:.8 }}/>
               <div style={{ width:20, height:3, background: '#fff', borderRadius:1, opacity:.3, marginBottom:2 }}/>
@@ -207,22 +248,22 @@ export default function CreateEventPage() {
         </div>
 
         {/* ── RIGHT COLUMN ── */}
-        <div style={S.rightCol}>
+        <div style={{ ...S.rightCol, ...(responsive?.rightCol || {}) }}>
 
           {/* calendar + visibility row */}
-          <div style={S.topMeta}>
-            <button type="button" style={{ ...S.pill, border:`1px solid ${theme.accent}40` }}>
+          <div style={{ ...S.topMeta, ...(responsive?.topMeta || {}) }}>
+            <button type="button" style={{ ...S.pill, border:`1px solid ${theme.accent}40`, ...(responsive?.pill || {}) }}>
               <span style={{ fontSize:16 }}>🙂</span>
-              <span>Personal Calendar</span>
+              <span style={{ flex: 1, textAlign: 'left' }}>Personal Calendar</span>
               <span style={{ opacity:.5 }}>▾</span>
             </button>
             <button
               type="button"
-              style={{ ...S.pill, border:`1px solid ${theme.accent}40` }}
+              style={{ ...S.pill, border:`1px solid ${theme.accent}40`, ...(responsive?.pill || {}) }}
               onClick={() => setIsPublic(p => !p)}
             >
               <span>{isPublic ? '🌐' : '🔒'}</span>
-              <span>{isPublic ? 'Public' : 'Private'}</span>
+              <span style={{ flex: 1, textAlign: 'left' }}>{isPublic ? 'Public' : 'Private'}</span>
               <span style={{ opacity:.5 }}>▾</span>
             </button>
           </div>
@@ -236,26 +277,35 @@ export default function CreateEventPage() {
             required
             style={{
               ...S.nameInput,
+              ...(responsive?.nameInput || {}),
               caretColor: theme.accent,
             }}
           />
 
           {/* date/time block */}
-          <div style={{ ...S.fieldBox, border:`1px solid ${theme.accent}20` }}>
+          <div style={{ ...S.fieldBox, ...(responsive?.fieldBox || {}), border:`1px solid ${theme.accent}20` }}>
             {/* start */}
-            <div style={S.timeRow}>
-              <span style={S.timeDot}>●</span>
-              <span style={S.timeLabel}>Start</span>
-              <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={S.dateInput}/>
-              <input type="time" value={startTime} onChange={e=>setStartTime(e.target.value)} style={S.timeInput}/>
+            <div style={{ ...S.timeRow, ...(responsive?.timeRow || {}) }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 75 }}>
+                <span style={S.timeDot}>●</span>
+                <span style={S.timeLabel}>Start</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flex: 1, width: isMiniMobile ? '100%' : 'auto' }}>
+                <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={{ ...S.dateInput, flex: 1, minWidth: 0 }}/>
+                <input type="time" value={startTime} onChange={e=>setStartTime(e.target.value)} style={{ ...S.timeInput, flex: isMiniMobile ? 'none' : 1, width: isMiniMobile ? '90px' : 'auto' }}/>
+              </div>
             </div>
             <div style={S.timeSep}/>
             {/* end */}
-            <div style={S.timeRow}>
-              <span style={{ ...S.timeDot, opacity:.4 }}>○</span>
-              <span style={S.timeLabel}>End</span>
-              <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} style={S.dateInput}/>
-              <input type="time" value={endTime} onChange={e=>setEndTime(e.target.value)} style={S.timeInput}/>
+            <div style={{ ...S.timeRow, ...(responsive?.timeRow || {}) }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 75 }}>
+                <span style={{ ...S.timeDot, opacity:.4 }}>○</span>
+                <span style={S.timeLabel}>End</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flex: 1, width: isMiniMobile ? '100%' : 'auto' }}>
+                <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} style={{ ...S.dateInput, flex: 1, minWidth: 0 }}/>
+                <input type="time" value={endTime} onChange={e=>setEndTime(e.target.value)} style={{ ...S.timeInput, flex: isMiniMobile ? 'none' : 1, width: isMiniMobile ? '90px' : 'auto' }}/>
+              </div>
             </div>
             {/* timezone */}
             <div style={{ ...S.tzBox, borderTop:`1px solid ${theme.accent}15` }}>
@@ -268,9 +318,9 @@ export default function CreateEventPage() {
           </div>
 
           {/* location */}
-          <div style={{ ...S.fieldBox, border:`1px solid ${theme.accent}20`, cursor:'text' }}
+          <div style={{ ...S.fieldBox, ...(responsive?.fieldBox || {}), border:`1px solid ${theme.accent}20`, cursor:'text' }}
             onClick={() => document.getElementById('loc-input').focus()}>
-            <div style={S.fieldRow}>
+            <div style={{ ...S.fieldRow, ...(responsive?.fieldRow || {}) }}>
               <span style={S.fieldIcon}>📍</span>
               <input
                 id="loc-input"
@@ -278,38 +328,38 @@ export default function CreateEventPage() {
                 placeholder="Add Event Location"
                 value={location}
                 onChange={e => setLocation(e.target.value)}
-                style={S.fieldInlineInput}
+                style={{ ...S.fieldInlineInput, ...(responsive?.fieldInlineInput || {}) }}
               />
             </div>
             {!location && (
-              <div style={{ paddingLeft:36, fontSize:12, color:'#3d6a6a', marginTop:2 }}>
+              <div style={{ paddingLeft: 36, paddingBottom: 12, fontSize:12, color:'#3d6a6a', marginTop: -4 }}>
                 Offline location or virtual link
               </div>
             )}
           </div>
 
           {/* description */}
-          <div style={{ ...S.fieldBox, border:`1px solid ${theme.accent}20` }}>
-            <div style={S.fieldRow}>
+          <div style={{ ...S.fieldBox, ...(responsive?.fieldBox || {}), border:`1px solid ${theme.accent}20` }}>
+            <div style={{ ...S.fieldRow, ...(responsive?.fieldRow || {}) }}>
               <span style={S.fieldIcon}>📝</span>
               <textarea
                 placeholder="Add Description"
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 rows={3}
-                style={S.textarea}
+                style={{ ...S.textarea, ...(responsive?.textarea || {}) }}
               />
             </div>
           </div>
 
           {/* event options */}
           <div style={S.optionsBlock}>
-            <p style={S.optionsTitle}>Event Options</p>
+            <p style={{ ...S.optionsTitle, ...(responsive?.optionsTitle || {}) }}>Event Options</p>
 
-            <div style={{ ...S.optionBox, border:`1px solid ${theme.accent}18` }}>
+            <div style={{ ...S.optionBox, ...(responsive?.optionBox || {}), border:`1px solid ${theme.accent}18` }}>
 
               {/* ticket price */}
-              <div style={S.optionRow}>
+              <div style={{ ...S.optionRow, ...(responsive?.optionRow || {}) }}>
                 <span style={S.optionIcon}>🎟</span>
                 <span style={S.optionLabel}>Ticket Price</span>
                 {editingPrice ? (
@@ -328,10 +378,38 @@ export default function CreateEventPage() {
                 )}
               </div>
 
-              <div style={{ ...S.optionDivider, background:`${theme.accent}12` }}/>
+              {/* vip price */}
+              <div style={{ ...S.optionRow, ...(responsive?.optionRow || {}) }}>
+                <span style={S.optionIcon}>💎</span>
+                <span style={S.optionLabel}>VIP Price (Naira)</span>
+                <input type="text" inputMode="numeric" min="0" step="0.01" value={ticketVipPrice}
+                  onChange={e => {
+                    const v = e.target.value
+                    setTicketVipPrice(v)
+                    const cleaned = String(v || '').replace(/[^0-9.]/g, '').trim()
+                    setTicketVipError(cleaned === '' || !isNaN(Number(cleaned)) ? '' : 'Enter a valid number')
+                  }} onBlur={() => { setTicketVipPrice(formatPriceInput(ticketVipPrice)); setTicketVipError('') }} style={{ ...S.optionInput, width:120 }} placeholder="e.g. 5000" />
+              </div>
+              {ticketVipError && <div style={S.errorText}>{ticketVipError}</div>}
+
+              {/* table for 4 price */}
+              <div style={{ ...S.optionRow, ...(responsive?.optionRow || {}) }}>
+                <span style={S.optionIcon}>🪑</span>
+                <span style={S.optionLabel}>Table (4) Price (Naira)</span>
+                <input type="text" inputMode="numeric" min="0" step="0.01" value={ticketTablePrice}
+                  onChange={e => {
+                    const v = e.target.value
+                    setTicketTablePrice(v)
+                    const cleaned = String(v || '').replace(/[^0-9.]/g, '').trim()
+                    setTicketTableError(cleaned === '' || !isNaN(Number(cleaned)) ? '' : 'Enter a valid number')
+                  }} onBlur={() => { setTicketTablePrice(formatPriceInput(ticketTablePrice)); setTicketTableError('') }} style={{ ...S.optionInput, width:120 }} placeholder="e.g. 20000" />
+              </div>
+              {ticketTableError && <div style={S.errorText}>{ticketTableError}</div>}
+
+              <div style={{ ...S.optionDivider, ...(responsive?.optionDivider || {}), background:`${theme.accent}12` }}/>
 
               {/* require approval */}
-              <div style={S.optionRow}>
+              <div style={{ ...S.optionRow, ...(responsive?.optionRow || {}) }}>
                 <span style={S.optionIcon}>👤</span>
                 <span style={S.optionLabel}>Require Approval</span>
                 <button
@@ -345,10 +423,10 @@ export default function CreateEventPage() {
                 </button>
               </div>
 
-              <div style={{ ...S.optionDivider, background:`${theme.accent}12` }}/>
+              <div style={{ ...S.optionDivider, ...(responsive?.optionDivider || {}), background:`${theme.accent}12` }}/>
 
               {/* capacity */}
-              <div style={S.optionRow}>
+              <div style={{ ...S.optionRow, ...(responsive?.optionRow || {}) }}>
                 <span style={S.optionIcon}>👥</span>
                 <span style={S.optionLabel}>Capacity</span>
                 {editingCap ? (
@@ -376,6 +454,7 @@ export default function CreateEventPage() {
             disabled={submitting || !name.trim()}
             style={{
               ...S.submitBtn,
+              ...(responsive?.submitBtn || {}),
               opacity: (!name.trim() || submitting) ? 0.5 : 1,
               cursor:  (!name.trim() || submitting) ? 'not-allowed' : 'pointer',
             }}
@@ -390,7 +469,7 @@ export default function CreateEventPage() {
 }
 
 /* ══════════════════════════════════
-   STYLES
+    STYLES
 ══════════════════════════════════ */
 const S = {
   shell: {
@@ -430,6 +509,7 @@ const S = {
     margin: '0 auto',
     padding: '40px 28px 80px',
     alignItems: 'start',
+    boxSizing: 'border-box'
   },
 
   /* left col */
@@ -504,6 +584,7 @@ const S = {
     backdropFilter: 'blur(8px)',
     fontFamily:"'DM Sans',system-ui,sans-serif",
     transition: 'border-color 0.8s ease',
+    boxSizing: 'border-box'
   },
 
   nameInput: {
@@ -538,6 +619,7 @@ const S = {
     flex:1, background:'transparent', border:'none', outline:'none',
     fontSize:15, fontWeight:500, color:'#c0d8d8',
     fontFamily:"'DM Sans',system-ui,sans-serif",
+    width: '100%'
   },
   textarea: {
     flex:1, background:'transparent', border:'none', outline:'none',
@@ -547,7 +629,7 @@ const S = {
   },
 
   /* date/time */
-  timeRow: { display:'flex', alignItems:'center', gap:10, padding:'14px 16px' },
+  timeRow: { display:'flex', alignItems:'center', gap:10, padding:'14px 16px', flexWrap: 'wrap' },
   timeSep: { height:1, background:'rgba(255,255,255,0.05)', margin:'0 16px' },
   timeDot: { fontSize:10, color:'#5a8a8a', flexShrink:0, width:12 },
   timeLabel: { fontSize:14, fontWeight:600, color:'#7aacac', width:32, flexShrink:0 },
@@ -581,7 +663,7 @@ const S = {
     overflow:'hidden',
     transition: 'border-color 0.8s ease',
   },
-  optionRow: { display:'flex', alignItems:'center', gap:12, padding:'14px 18px' },
+  optionRow: { display:'flex', alignItems:'center', gap:12, padding:'14px 18px', justifyContent: 'space-between' },
   optionDivider: { height:1, margin:'0 18px' },
   optionIcon:  { fontSize:16, flexShrink:0 },
   optionLabel: { flex:1, fontSize:14, fontWeight:500, color:'#c0d8d8' },
@@ -595,6 +677,7 @@ const S = {
     borderRadius:8, padding:'4px 8px', fontSize:13, color:'#e0f0f0',
     fontFamily:"'DM Sans',system-ui,sans-serif", width:90, textAlign:'right',
   },
+  errorText: { color: '#fb7185', marginTop: 6, fontSize: 13, fontWeight: 700 },
 
   /* toggle */
   toggle: {
@@ -624,5 +707,66 @@ const S = {
     letterSpacing:'-.2px',
     boxShadow:'0 4px 24px rgba(0,0,0,.3)',
     transition:'opacity 0.2s',
+  },
+}
+
+/* ── TABLET BREAKPOINT (768px down to 481px) ── */
+const tabletStyles = {
+  shell: { paddingBottom: 28 },
+  topbar: { padding: '0 18px' },
+  body: {
+    gridTemplateColumns: '1fr',
+    gap: 24,
+    padding: '28px 18px 64px',
+  },
+  leftCol: { position: 'static', top: 'auto' },
+  rightCol: { gap: 12 },
+  themeRow: { flexWrap: 'nowrap' },
+  topMeta: { justifyContent: 'flex-start' },
+}
+
+/* ── MOBILE BREAKPOINT (480px down to 320px) ── */
+const mobileStyles = {
+  shell: { paddingBottom: 20 },
+  topbar: {
+    height: 'auto',
+    padding: '10px 14px',
+    gap: 8,
+  },
+  topLeft: { gap: 4 },
+  topRight: { gap: 8 },
+  createBtn: { padding: '6px 12px', fontSize: '11.5px' },
+  body: {
+    gridTemplateColumns: '1fr',
+    gap: 16,
+    padding: '14px 12px 40px',
+  },
+  leftCol: { position: 'static', top: 'auto', gap: 12 },
+  coverBox: { aspectRatio: '16 / 10' },
+  themeRow: {
+    padding: '10px 12px',
+    gap: 8
+  },
+  topMeta: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 8
+  },
+  pill: {
+    width: '100%',
+    padding: '9px 14px'
+  },
+  nameInput: {
+    fontSize: '28px',
+    padding: '4px 0'
+  },
+  fieldRow: { padding: '12px 14px' },
+  timeRow: { padding: '12px 14px' },
+  optionRow: { padding: '12px 14px' },
+  optionsTitle: { marginBottom: 6 },
+  submitBtn: {
+    padding: '14px 0',
+    borderRadius: 12,
+    fontSize: '15px'
   },
 }

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
+import { getApiBaseUrl } from '../services/api.js'
 
 export default function TicketPage() {
   const { ticketId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
+  const API_BASE = getApiBaseUrl()
   const [ticket, setTicket] = useState(null)
   const [event, setEvent] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -78,6 +79,11 @@ export default function TicketPage() {
     <div style={styles.page}>
       <main style={styles.main}>
         <section style={styles.card}>
+          {searchParams.get('duplicate') === '1' && (
+            <div style={styles.notice}>
+              This email already has a ticket, so we opened the existing one instead of creating another.
+            </div>
+          )}
           <div style={styles.kicker}>Your Ticket</div>
           <h1 style={styles.title}>{event?.title || 'Event Ticket'}</h1>
           <p style={styles.subTitle}>{event?.startDate} · {event?.startTime}{event?.location ? ` · ${event.location}` : ''}</p>
@@ -141,4 +147,5 @@ const styles = {
   metaRow: { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#d4d4de' },
   primaryBtn: { marginTop: 16, border: 'none', borderRadius: 14, padding: '12px 16px', background: '#f1f1f5', color: '#111', fontWeight: 800, cursor: 'pointer' },
   success: { marginTop: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(34,197,94,0.12)', color: '#86efac', fontWeight: 700 },
+  notice: { marginBottom: 14, padding: '12px 14px', borderRadius: 14, background: 'rgba(59,130,246,0.12)', color: '#93c5fd', fontWeight: 700, lineHeight: 1.5 },
 }

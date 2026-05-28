@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { getApiBaseUrl } from '../services/api.js'
 
 const themeMap = {
   minimal: { bg: ['#10262b', '#081722'], accent: '#5eead4' },
@@ -8,6 +9,7 @@ const themeMap = {
   ocean: { bg: ['#0a1628', '#061a2e'], accent: '#38bdf8' },
   forest: { bg: ['#0d2110', '#0a1a0d'], accent: '#4ade80' },
   rose: { bg: ['#2d0a1a', '#1a0a1a'], accent: '#fb7185' },
+  black: { bg: ['#000000', '#060606'], accent: '#ffffff' },
 }
 
 const ticketOptions = [
@@ -19,7 +21,7 @@ const ticketOptions = [
 export default function PublicEventPage() {
   const { eventId } = useParams()
   const navigate = useNavigate()
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
+  const API_BASE = getApiBaseUrl()
   const [event, setEvent] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -27,6 +29,8 @@ export default function PublicEventPage() {
   const [submitting, setSubmitting] = useState(false)
   const [selectedTicketType, setSelectedTicketType] = useState('regular')
   const [form, setForm] = useState({ name: '', email: '', note: '' })
+  const [donation, setDonation] = useState(0)
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     if (!form.email) return
@@ -68,14 +72,16 @@ export default function PublicEventPage() {
       const res = await fetch(`${API_BASE}/tickets/events/${eventId}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, ticketType: selectedTicketType }),
+        body: JSON.stringify({ ...form, ticketType: selectedTicketType, donation: Number(donation || 0) }),
       })
       const payload = await res.json()
       if (!res.ok) throw new Error(payload.message || 'Failed to reserve ticket')
 
       if (!payload.data?.paymentRequired) {
-        setSuccess('Your ticket has been created.')
-        navigate(`/tickets/${payload.data?.ticket?.ticketId}?success=1`)
+        const ticketId = payload.data?.ticket?.ticketId
+        const isDuplicate = String(payload.message || '').toLowerCase().includes('already exists')
+        setSuccess(isDuplicate ? 'This email already has a ticket. Opening it now.' : 'Your ticket has been created.')
+        navigate(`/tickets/${ticketId}?success=1${isDuplicate ? '&duplicate=1' : ''}`)
         return
       }
 
@@ -97,8 +103,19 @@ export default function PublicEventPage() {
 
   const theme = themeMap[event.theme] || themeMap.minimal
   const ticketBaseAmount = parseTicketAmount(event.ticketPrice)
+  // prefer per-type price if available; otherwise mark as unavailable (0)
+  const vipBaseAmount = (event?.ticketPrices && typeof event.ticketPrices.vip === 'number')
+    ? Math.round(event.ticketPrices.vip)
+    : 0
+  const tableBaseAmount = (event?.ticketPrices && typeof event.ticketPrices.table === 'number')
+    ? Math.round(event.ticketPrices.table)
+    : 0
   const ticketFeeAmount = calculateTicketFee(ticketBaseAmount)
   const ticketTotalAmount = ticketBaseAmount + ticketFeeAmount
+  const vipFeeAmount = calculateTicketFee(vipBaseAmount)
+  const vipTotalAmount = vipBaseAmount + vipFeeAmount
+  const tableFeeAmount = calculateTicketFee(tableBaseAmount)
+  const tableTotalAmount = tableBaseAmount + tableFeeAmount
 
   return (
     <div style={{ ...styles.page, background: `linear-gradient(180deg, ${theme.bg[0]} 0%, #0d0e12 60%, #07080a 100%)` }}>
@@ -111,6 +128,10 @@ export default function PublicEventPage() {
           Back to Overview
         </button>
       </header>
+
+      {notice && (
+        <div style={styles.topNotice} role="status" aria-live="polite">{notice}</div>
+      )}
 
       <main style={styles.main}>
         {/* HERO SECTION */}
@@ -174,19 +195,34 @@ export default function PublicEventPage() {
             {/* PANEL 1: TICKET SELECTION */}
             <div style={styles.panel}>
               <div style={styles.panelHead}>1. Select Ticket Type</div>
+              {notice && <div style={styles.noticeBanner}>{notice}</div>}
               <div style={styles.ticketIntro}>Choose your preferred access tier for this event.</div>
               <div style={styles.ticketGrid}>
                 {ticketOptions.map(option => {
                   const isActive = selectedTicketType === option.id;
+                  const available = (option.id === 'vip')
+                    ? (event?.ticketPrices && typeof event.ticketPrices.vip === 'number' && event.ticketPrices.vip > 0)
+                    : (option.id === 'table')
+                      ? (event?.ticketPrices && typeof event.ticketPrices.table === 'number' && event.ticketPrices.table > 0)
+                      : true
+
                   return (
                     <button
                       key={option.id}
                       type="button"
                       style={{ 
                         ...styles.ticketCard, 
-                        ...(isActive ? { borderColor: theme.accent, background: `${theme.accent}0a` } : {}) 
+                        ...(isActive ? { borderColor: theme.accent, background: `${theme.accent}0a` } : {}),
+                        ...(available ? {} : { opacity: 0.45, cursor: 'not-allowed' }),
                       }}
-                      onClick={() => setSelectedTicketType(option.id)}
+                      onClick={() => {
+                        if (!available) {
+                          setNotice(`${option.label} is not available for this event.`)
+                          setTimeout(()=>setNotice(''),4000)
+                          return
+                        }
+                        setSelectedTicketType(option.id)
+                      }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={styles.ticketCardTitle}>{option.label}</div>
@@ -203,17 +239,37 @@ export default function PublicEventPage() {
 
               <div style={styles.breakdownCard}>
                 <div style={styles.breakdownHead}>Payment Summary</div>
-                <div style={styles.breakdownRow}><span>Ticket tier</span><span style={{ color: '#fff' }}>{ticketOptions.find(o => o.id === selectedTicketType)?.label}</span></div>
-                <div style={styles.breakdownRow}><span>Base fee</span><span style={{ color: '#fff' }}>{formatCurrency(ticketBaseAmount)}</span></div>
-                <div style={styles.breakdownRow}><span>Processing fee</span><span style={{ color: '#fff' }}>{formatCurrency(ticketFeeAmount)}</span></div>
-                <div style={styles.breakdownTotal}><span>Total Due</span><span style={{ color: theme.accent }}>{formatCurrency(ticketTotalAmount)}</span></div>
+                {(() => {
+                  const base = selectedTicketType === 'vip'
+                    ? vipBaseAmount
+                    : selectedTicketType === 'table'
+                      ? tableBaseAmount
+                      : ticketBaseAmount
+                  const fee = selectedTicketType === 'vip'
+                    ? vipFeeAmount
+                    : selectedTicketType === 'table'
+                      ? tableFeeAmount
+                      : ticketFeeAmount
+                  const donationVal = Number(donation || 0)
+                  const total = base + fee + donationVal
+                  return (
+                    <>
+                      <div style={styles.breakdownRow}><span>Ticket tier</span><span style={{ color: '#fff' }}>{ticketOptions.find(o => o.id === selectedTicketType)?.label}</span></div>
+                      <div style={styles.breakdownRow}><span>Base fee</span><span style={{ color: '#fff' }}>{formatCurrency(base)}</span></div>
+                      <div style={styles.breakdownRow}><span>Processing fee</span><span style={{ color: '#fff' }}>{formatCurrency(fee)}</span></div>
+                      <div style={styles.breakdownRow}><span>Donation (optional)</span><span style={{ color: '#fff' }}>{formatCurrency(donationVal)}</span></div>
+                      <div style={styles.breakdownTotal}><span>Total Due</span><span style={{ color: theme.accent }}>{formatCurrency(total)}</span></div>
+                    </>
+                  )
+                })()}
               </div>
             </div>
 
             {/* PANEL 2: RESERVATION FORM */}
             <div style={styles.panel}>
               <div style={styles.panelHead}>2. Attendee Registration</div>
-              {success && <div style={styles.successBanner}>✓ {success}</div>}
+                {success && <div style={styles.successBanner}>✓ {success}</div>}
+                {notice && <div style={styles.noticeBanner}>{notice}</div>}
               
               <form onSubmit={handleSubmit} style={styles.form}>
                 <div style={styles.field}>
@@ -227,12 +283,18 @@ export default function PublicEventPage() {
                 </div>
 
                 <div style={styles.field}>
+                  <label style={styles.label}>Add a donation (optional)</label>
+                  <input type="number" min="0" step="0.01" value={donation}
+                    onChange={e => setDonation(e.target.value)} style={styles.input} placeholder="0.00" />
+                </div>
+
+                <div style={styles.field}>
                   <label style={styles.label}>Note for the Host</label>
                   <textarea value={form.note} onChange={e => setForm(prev => ({ ...prev, note: e.target.value }))} rows={3} style={styles.textarea} placeholder="Any special requests or details optional..." />
                 </div>
 
                 <button type="submit" style={{ ...styles.submitBtn, background: theme.accent }} disabled={submitting}>
-                  {submitting ? 'Processing Reservation...' : isFreePrice(event.ticketPrice) ? 'Claim Free Ticket' : `Secure Pass • ${formatCurrency(ticketTotalAmount)}`}
+                  {submitting ? 'Processing Reservation...' : isFreePrice(event.ticketPrice) ? 'Claim Free Ticket' : `Secure Pass • ${formatCurrency((selectedTicketType==='vip'?vipTotalAmount:(selectedTicketType==='table'?tableTotalAmount:ticketTotalAmount)) + Number(donation||0))}`}
                 </button>
 
                 <button type="button" style={styles.secondaryBtn} onClick={() => navigate(`/public/events/${eventId}/voting`)}>
@@ -378,6 +440,9 @@ const styles = {
   ticketIntro: { color: '#71717a', fontSize: 14, marginBottom: 20 },
   
   ticketGrid: { display: 'flex', flexDirection: 'column', gap: 10 },
+
+  noticeBanner: { padding: '10px 12px', borderRadius: 10, background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.12)', color: '#fb923c', fontWeight:700, marginBottom: 10 },
+  topNotice: { maxWidth: 840, margin: '12px auto', padding: '12px 16px', borderRadius: 10, background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.12)', color: '#fb923c', fontWeight:700, textAlign: 'center' },
   ticketCard: { textAlign: 'left', width: '100%', padding: 16, borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)', color: '#e4e4e7', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 4 },
   ticketCardTitle: { fontSize: 15, fontWeight: 600, color: '#fff' },
   ticketCardDesc: { color: '#71717a', fontSize: 13, lineHeight: 1.4 },

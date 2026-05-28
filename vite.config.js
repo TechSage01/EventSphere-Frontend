@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://eventsphere-backend-swqw.onrender.com',
+        target: 'https://eventsnest-backend.onrender.com/',
         changeOrigin: true,
       },
     },

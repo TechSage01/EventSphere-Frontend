@@ -1,314 +1,531 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { getApiBaseUrl } from '../services/api.js'
+import { listAwards, deleteAward as apiDeleteAward } from '../services/awards.js'
 
-export default function AdminEventPage({ user = null }) {
-  const { eventId } = useParams()
-  const navigate = useNavigate()
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://eventsphere-backend-swqw.onrender.com/api'
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [data, setData] = useState(null)
-  const [form, setForm] = useState({ title: '', description: '', nomineesText: '' })
+/* ─── helpers ─── */
+function slugify(v) {
+  return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')
+}
+function extractNomineeName(v) {
+  if (!v) return ''
+  if (typeof v==='string'||typeof v==='number') return String(v).trim()
+  if (typeof v!=='object') return ''
+  if (typeof v.name === 'string' || typeof v.name === 'number') return String(v.name).trim()
+  if (v.name && typeof v.name === 'object') {
+    return String(v.name.name||v.name.label||v.name.value||'').trim()
+  }
+  return String(v.nominee||v.label||v.value||v.title||v.text||v.fullName||'').trim()
+}
+function extractNomineeImageUrl(v) {
+  if (!v||typeof v!=='object') return ''
+  const img = v.image||v.photo||v.picture||v.avatar||v.imageUrl||''
+  if (typeof img==='string') return img.trim()
+  if (img&&typeof img==='object') return String(img.url||img.src||img.path||img.value||'').trim()
+  return ''
+}
+function normalizeNominees(input) {
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    const objectCandidates = [
+      input.nominees,
+      input.contestants,
+      input.items,
+      input.data?.nominees,
+      input.data?.contestants,
+      input.data?.items,
+      input.results,
+      input.list,
+    ].find(Array.isArray)
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      setError('')
+    if (objectCandidates) return normalizeNominees(objectCandidates)
 
-      try {
-        const token = localStorage.getItem('es_token')
-        const res = await fetch(`${API_BASE}/events/${eventId}/admin`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        const payload = await res.json()
-
-        if (!res.ok) throw new Error(payload.message || 'Failed to load admin data')
-
-        setData(payload.data)
-        setForm({ title: '', description: '', nomineesText: '' })
-      } catch (err) {
-        setError(err.message)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    load()
-  }, [eventId])
-
-  async function handleCreateAward(e) {
-    e.preventDefault()
-    setSaving(true)
-    setError('')
-    setSuccess('')
-
-    try {
-      const token = localStorage.getItem('es_token')
-      const res = await fetch(`${API_BASE}/awards/events/${eventId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-          nominees: form.nomineesText,
-        }),
-      })
-      const payload = await res.json()
-
-      if (!res.ok) throw new Error(payload.message || 'Failed to create award')
-
-      setSuccess('Award created successfully.')
-      setForm({ title: '', description: '', nomineesText: '' })
-      setData(prev => prev ? { ...prev, awards: [payload.data?.award, ...prev.awards] } : prev)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
+    const values = Object.values(input)
+    if (values.some(value => typeof value === 'string' || typeof value === 'number' || (value && typeof value === 'object' && (value.name || value.label || value.value || value.image || value.photo || value.picture || value.avatar || value.imageUrl)))) {
+      return normalizeNominees(values)
     }
   }
 
-  if (loading) return <Shell message="Loading admin dashboard..." />
-  if (error && !data) return <Shell message={error} actionLabel="Back to Events" onAction={() => navigate('/events')} />
-  if (!data) return <Shell message="Admin data not found" actionLabel="Back to Events" onAction={() => navigate('/events')} />
+  if (Array.isArray(input)) {
+    return input.map(item=>{
+      if (!item) return null
+      if (typeof item==='string') { const n=item.trim(); return n?{name:n,imageUrl:'',slug:slugify(n)}:null }
+      const n=extractNomineeName(item)
+      if (!n) return null
+      return { name:n, imageUrl:extractNomineeImageUrl(item), slug:item.slug||slugify(n) }
+    }).filter(Boolean)
+  }
+  if (typeof input==='string') {
+    return input.split(/\r?\n|,/).map(p=>p.trim()).filter(Boolean).map(n=>({name:n,imageUrl:'',slug:slugify(n)}))
+  }
+  return []
+}
+function countNomineeVotes(award, nominee) {
+  const votes = Array.isArray(award?.votes)?award.votes:[]
+  const targetName = extractNomineeName(nominee).toLowerCase()
+  const targetSlug = slugify(nominee?.slug||extractNomineeName(nominee))
+  return votes.reduce((total,vote)=>{
+    const vn = vote?.nominee??vote?.nomineeName??vote?.candidate??vote?.choice??''
+    const voteName = extractNomineeName(vn).toLowerCase()||String(vn||'').trim().toLowerCase()
+    const voteSlug = slugify(vn?.slug||extractNomineeName(vn)||vn)
+    return (voteName===targetName||voteSlug===targetSlug)?total+Number(vote.quantity||1):total
+  },0)
+}
 
-  const {
-    event,
-    paidCount,
-    freeCount,
-    scannedCount = 0,
-    unscannedCount = 0,
-    paidTickets = [],
-    scannedTickets = [],
-    unscannedTickets = [],
-    awards = [],
-  } = data
+function getAwardNominees(award) {
+  return normalizeNominees(
+    award?.nominees ||
+    award?.contestants ||
+    award?.items ||
+    award?.data?.nominees ||
+    award?.data?.contestants ||
+    award?.data?.items ||
+    award?.results ||
+    award?.list ||
+    []
+  )
+}
+
+export default function AdminEventPage({ user=null }) {
+  const { eventId } = useParams()
+  const navigate    = useNavigate()
+  const API_BASE    = getApiBaseUrl()
+  const nomineeFileRefs = useRef([])
+
+  const [loading,  setLoading]  = useState(true)
+  const [saving,   setSaving]   = useState(false)
+  const [error,    setError]    = useState('')
+  const [success,  setSuccess]  = useState('')
+  const [data,     setData]     = useState(null)
+  const [form,     setForm]     = useState({ title:'', description:'', nominees:[] })
+  const [deleting, setDeleting] = useState(null) // awardId being deleted
+
+  useEffect(()=>{
+    async function load() {
+      setLoading(true); setError('')
+      try {
+        const token = localStorage.getItem('es_token')
+        const res   = await fetch(`${API_BASE}/events/${eventId}/admin`,{headers:{Authorization:`Bearer ${token}`}})
+        const payload = await res.json()
+        if (!res.ok) throw new Error(payload.message||'Failed to load admin data')
+        setData(payload.data)
+        try {
+          const awardsPayload = await listAwards(eventId)
+          const awardsList = awardsPayload?.data || awardsPayload?.awards || awardsPayload || []
+          setData(prev=>prev?{...prev,awards:awardsList}:prev)
+        } catch(_) {
+          // silently ignore awards list failure — admin endpoint may already include awards
+        }
+        setForm({ title:'', description:'', nominees:[] })
+      } catch(err) { setError(err.message) }
+      finally { setLoading(false) }
+    }
+    load()
+  },[eventId])
+
+  async function handleCreateAward(e) {
+    e.preventDefault(); setSaving(true); setError(''); setSuccess('')
+    try {
+      const token = localStorage.getItem('es_token')
+      const res   = await fetch(`${API_BASE}/awards/events/${eventId}`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body: JSON.stringify({
+          title: form.title, description: form.description,
+          nominees: form.nominees
+            .map(n=>({
+              name: n.name.trim(),
+              imageUrl: n.imageUrl.trim(),
+              slug: slugify(n.name),
+            }))
+            .filter(n=>n.name),
+        }),
+      })
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload.message||'Failed to create award')
+      setSuccess('Award created successfully.')
+      setForm({ title:'', description:'', nominees:[] })
+      setData(prev=>prev?{...prev,awards:[payload.data?.award,...(Array.isArray(prev.awards)?prev.awards:[])]}:prev)
+    } catch(err) { setError(err.message) }
+    finally { setSaving(false) }
+  }
+
+  async function handleDeleteAward(awardId, awardTitle) {
+    if (!window.confirm(`Delete "${awardTitle}"? This cannot be undone.`)) return
+    setDeleting(awardId); setSaving(true); setError(''); setSuccess('')
+    try {
+      await apiDeleteAward(eventId, awardId)
+      setData(prev=>prev?{...prev,awards:(Array.isArray(prev.awards)?prev.awards:[]).filter(a=>a.id!==awardId)}:prev)
+      setSuccess('Award deleted.')
+    } catch(err) { setError(err.message) }
+    finally { setSaving(false); setDeleting(null) }
+  }
+
+  function handleNomineeFileChange(index, file) {
+    if (!file||!file.type?.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = ()=>{
+      setForm(prev=>({...prev,nominees:prev.nominees.map((n,i)=>i===index?{...n,imageUrl:String(reader.result||'')}:n)}))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  if (loading) return <Shell message="Loading admin dashboard…"/>
+  if (error&&!data) return <Shell message={error} actionLabel="Back to Events" onAction={()=>navigate('/events')}/>
+  if (!data)        return <Shell message="Admin data not found" actionLabel="Back to Events" onAction={()=>navigate('/events')}/>
+
+  const { event, paidCount, freeCount, scannedCount=0, unscannedCount=0,
+    paidTickets=[], scannedTickets=[], unscannedTickets=[], awards=[] } = data
+  const safeAwards = Array.isArray(awards) ? awards : []
+  const vipPaidCount = paidTickets.filter(ticket => String(ticket?.ticketType || '').toLowerCase() === 'vip').length
+  const tablePaidCount = paidTickets.filter(ticket => String(ticket?.ticketType || '').toLowerCase() === 'table').length
+
+  const currentNominees = form.nominees.length>0 ? form.nominees : [{name:'',imageUrl:''}]
 
   return (
-    <div style={styles.page}>
-      <header style={styles.topbar}>
+    <div style={A.page}>
+
+      {/* ─── TOPBAR ─── */}
+      <header style={A.topbar}>
         <div>
-          <div style={styles.kicker}>Admin</div>
-          <h1 style={styles.title}>{event.title}</h1>
+          <div style={A.kicker}>Admin Dashboard</div>
+          <h1 style={A.pageTitle}>{event.title}</h1>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" style={styles.backBtn} onClick={() => navigate(`/events/${eventId}`)}>
-            Back to Event
-          </button>
-          <button type="button" style={styles.secondaryBtn} onClick={() => navigate(`/events/${eventId}/scan`)}>
-            Open Scanner
-          </button>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button style={A.ghostBtn} onClick={()=>navigate(`/events/${eventId}`)}>← Back to Event</button>
+          <button style={A.accentBtn} onClick={()=>navigate(`/events/${eventId}/scan`)}>📷 Scanner</button>
         </div>
       </header>
 
-      <main style={styles.main}>
-        <section style={styles.heroGrid}>
-          <StatCard label="Paid tickets" value={paidCount} />
-          <StatCard label="Free tickets" value={freeCount} />
-          <StatCard label="Scanned" value={scannedCount} />
-          <StatCard label="Not scanned" value={unscannedCount} />
-          <StatCard label="Awards" value={awards.length} />
-          <StatCard label="Votes" value={awards.reduce((total, award) => total + (award.voteCount || 0), 0)} />
-        </section>
+      <main style={A.main}>
 
-        <section style={styles.grid}>
-          <div style={styles.panel}>
-            <div style={styles.panelHead}>Create Award</div>
-            {success && <div style={styles.success}>{success}</div>}
-            {error && <div style={styles.error}>{error}</div>}
-            <form onSubmit={handleCreateAward} style={styles.form}>
-              <label style={styles.field}>
-                <span style={styles.label}>Award Title</span>
-                <input value={form.title} onChange={e => setForm(prev => ({ ...prev, title: e.target.value }))} style={styles.input} placeholder="Best Dressed" required />
-              </label>
-              <label style={styles.field}>
-                <span style={styles.label}>Description</span>
-                <textarea value={form.description} onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} style={styles.textarea} rows={4} placeholder="Describe this award category" />
-              </label>
-              <label style={styles.field}>
-                <span style={styles.label}>Nominees</span>
-                <textarea
-                  value={form.nomineesText}
-                  onChange={e => setForm(prev => ({ ...prev, nomineesText: e.target.value }))}
-                  style={styles.textarea}
-                  rows={5}
-                  placeholder="Enter up to 6 nominees, one per line or separated by commas"
-                  required
-                />
-              </label>
-              <div style={styles.helper}>At most 6 nominees per award.</div>
-              <button type="submit" style={styles.primaryBtn} disabled={saving}>{saving ? 'Creating…' : 'Create Award'}</button>
+        {/* ─── STATS ─── */}
+        <div style={A.statsGrid}>
+          {[
+            {label:'Paid Tickets',   value:paidCount,     color:'#a78bfa'},
+            {label:'VIP Paid',       value:vipPaidCount,  color:'#c084fc'},
+            {label:'Table Paid',     value:tablePaidCount,color:'#f472b6'},
+            {label:'Free Tickets',   value:freeCount,     color:'#38bdf8'},
+            {label:'Checked In',     value:scannedCount,  color:'#4ade80'},
+            {label:'Not Scanned',    value:unscannedCount,color:'#fb7185'},
+            {label:'Awards',         value:safeAwards.length, color:'#fbbf24'},
+            {label:'Total Votes',    value:safeAwards.reduce((t,a)=>t+Number(a.voteCount||0),0), color:'#fb923c'},
+          ].map(s=>(
+            <div key={s.label} style={A.statCard}>
+              <div style={A.statLabel}>{s.label}</div>
+              <div style={{...A.statValue,color:s.color}}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ─── MAIN GRID ─── */}
+        <div style={A.grid}>
+
+          {/* CREATE AWARD */}
+          <div style={A.panel}>
+            <div style={A.panelHead}>
+              <span style={A.panelIcon}>🏆</span> Create Award
+            </div>
+            {success && <div style={A.successBanner}>{success}</div>}
+            {error   && <div style={A.errorBanner}>{error}</div>}
+
+            <form onSubmit={handleCreateAward} style={{display:'grid',gap:14}}>
+              <FormField label="Award Title">
+                <input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))}
+                  style={A.input} placeholder="e.g. Best Dressed" required/>
+              </FormField>
+              <FormField label="Description (optional)">
+                <textarea value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))}
+                  style={{...A.input,...A.textarea}} rows={3} placeholder="Describe this award category"/>
+              </FormField>
+
+              <FormField label={`Nominees (${currentNominees.length}/6)`}>
+                <div style={{display:'grid',gap:10}}>
+                  {currentNominees.map((nominee,index)=>(
+                    <div key={index} style={A.nomineeCard}>
+                      {/* thumbnail preview */}
+                      {nominee.imageUrl && (
+                        <img src={nominee.imageUrl} alt="preview"
+                          style={{width:40,height:40,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
+                      )}
+                      <div style={{flex:1,display:'grid',gap:8}}>
+                        <input
+                          value={nominee.name}
+                          onChange={e=>setForm(p=>({...p,nominees:currentNominees.map((n,i)=>i===index?{...n,name:e.target.value}:n)}))}
+                          style={A.input} placeholder={`Nominee ${index+1} name`} required={index===0}
+                        />
+                        <input
+                          value={nominee.imageUrl}
+                          onChange={e=>setForm(p=>({...p,nominees:currentNominees.map((n,i)=>i===index?{...n,imageUrl:e.target.value}:n)}))}
+                          style={A.input} placeholder="Photo URL (optional)"
+                        />
+                        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                          <button type="button" style={A.ghostSmBtn} onClick={()=>nomineeFileRefs.current[index]?.click()}>
+                            📱 Upload from phone
+                          </button>
+                          {nominee.imageUrl && (
+                            <button type="button" style={A.ghostSmBtn}
+                              onClick={()=>setForm(p=>({...p,nominees:currentNominees.map((n,i)=>i===index?{...n,imageUrl:''}:n)}))}>
+                              ✕ Clear photo
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <button type="button"
+                        style={{...A.dangerSmBtn,alignSelf:'flex-start',flexShrink:0}}
+                        disabled={currentNominees.length===1}
+                        onClick={()=>setForm(p=>({...p,nominees:currentNominees.filter((_,i)=>i!==index)}))}>
+                        Remove
+                      </button>
+                      <input ref={el=>{nomineeFileRefs.current[index]=el}} type="file" accept="image/*" capture="environment"
+                        style={{display:'none'}} onChange={e=>handleNomineeFileChange(index,e.target.files?.[0])}/>
+                    </div>
+                  ))}
+                  <button type="button" style={A.addNomineeBtn}
+                    disabled={currentNominees.length>=6}
+                    onClick={()=>setForm(p=>({...p,nominees:[...currentNominees,{name:'',imageUrl:''}].slice(0,6)}))}>
+                    + Add Nominee
+                  </button>
+                </div>
+              </FormField>
+
+              <p style={A.helperText}>Up to 6 nominees. Paste a photo URL or use the phone picker.</p>
+              <button type="submit" style={A.primaryBtn} disabled={saving}>
+                {saving ? 'Creating…' : 'Create Award'}
+              </button>
             </form>
           </div>
 
-          <div style={styles.panel}>
-            <div style={styles.panelHead}>Paid Attendees</div>
-            <div style={styles.list}>
-              {paidTickets.length === 0 ? (
-                <div style={styles.empty}>No paid tickets yet.</div>
-              ) : paidTickets.map(ticket => (
-                <div key={ticket.id} style={styles.listItem}>
-                  <div>
-                    <div style={styles.itemTitle}>{ticket.attendeeName}</div>
-                    <div style={styles.itemMeta}>{ticket.attendeeEmail}</div>
-                    <div style={styles.statusChipOn}>Paid ticket</div>
-                  </div>
-                  <div style={styles.amount}>₦{Number(ticket.price || 0).toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
+          {/* PAID ATTENDEES */}
+          <div style={A.panel}>
+            <div style={A.panelHead}><span style={A.panelIcon}>💳</span> Paid Attendees <span style={A.countBadge}>{paidTickets.length}</span></div>
+            <TicketList tickets={paidTickets} type="paid"/>
           </div>
 
-          <div style={styles.panel}>
-            <div style={styles.panelHead}>Checked-In Attendees</div>
-            <div style={styles.list}>
-              {scannedTickets.length === 0 ? (
-                <div style={styles.empty}>No scanned tickets yet.</div>
-              ) : scannedTickets.map(ticket => (
-                <div key={ticket.id} style={styles.listItem}>
-                  <div>
-                    <div style={styles.itemTitle}>{ticket.attendeeName}</div>
-                    <div style={styles.itemMeta}>{ticket.attendeeEmail}</div>
-                    <div style={styles.statusChipOn}>Scanned {ticket.checkedInAt ? `• ${formatCheckedInAt(ticket.checkedInAt)}` : ''}</div>
-                  </div>
-                  <div style={styles.amount}>₦{Number(ticket.price || 0).toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
+          {/* CHECKED-IN */}
+          <div style={A.panel}>
+            <div style={A.panelHead}><span style={A.panelIcon}>✅</span> Checked In <span style={A.countBadge}>{scannedTickets.length}</span></div>
+            <TicketList tickets={scannedTickets} type="scanned"/>
           </div>
 
-          <div style={styles.panel}>
-            <div style={styles.panelHead}>Confirmed, Not Scanned Yet</div>
-            <div style={styles.list}>
-              {unscannedTickets.length === 0 ? (
-                <div style={styles.empty}>No confirmed tickets waiting to be scanned.</div>
-              ) : unscannedTickets.map(ticket => (
-                <div key={ticket.id} style={styles.listItem}>
-                  <div>
-                    <div style={styles.itemTitle}>{ticket.attendeeName}</div>
-                    <div style={styles.itemMeta}>{ticket.attendeeEmail}</div>
-                    <div style={styles.statusChipOff}>Not scanned</div>
-                  </div>
-                  <div style={styles.amount}>₦{Number(ticket.price || 0).toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
+          {/* NOT SCANNED */}
+          <div style={A.panel}>
+            <div style={A.panelHead}><span style={A.panelIcon}>⏳</span> Not Scanned Yet <span style={A.countBadge}>{unscannedTickets.length}</span></div>
+            <TicketList tickets={unscannedTickets} type="unscanned"/>
           </div>
 
-          <div style={styles.panelWide}>
-            <div style={styles.panelHead}>Awards & Votes</div>
-            <div style={styles.list}>
-              {awards.length === 0 ? (
-                <div style={styles.empty}>No awards created yet.</div>
-              ) : awards.map(award => (
-                <div key={award.id} style={styles.awardItem}>
-                  <div>
-                    <div style={styles.itemTitle}>{award.title}</div>
-                    <div style={styles.itemMeta}>{award.description || 'No description provided.'}</div>
-                    <div style={styles.itemMeta}>Total votes: {award.voteCount || 0}</div>
-                  </div>
-                  <div style={styles.voteBox}>
-                    <div style={styles.amount}>{award.voteCount || 0} votes</div>
-                    <div style={styles.voteSectionLabel}>Nominee breakdown</div>
-                    <div style={styles.nomineeList}>
-                      {(award.nominees || []).map(nominee => (
-                        <div key={nominee.name} style={styles.nomineeChip}>
-                          {nominee.name} x {nominee.voteCount || 0}
+          {/* AWARDS & VOTES — full width */}
+          <div style={A.panelWide}>
+            <div style={A.panelHead}><span style={A.panelIcon}>🏅</span> Awards & Votes <span style={A.countBadge}>{safeAwards.length}</span></div>
+            {safeAwards.length===0
+              ? <p style={A.empty}>No awards created yet. Use the form on the left to create one.</p>
+              : <div style={{display:'grid',gap:16}}>
+                  {safeAwards.map(award=>{
+                    const nominees = getAwardNominees(award)
+                    const totalAwardVotes = award.voteCount || nominees.reduce((t,n)=>t+countNomineeVotes(award,n),0)
+                    return (
+                      <div key={award.id} style={A.awardCard}>
+                        {/* award header */}
+                        <div style={A.awardHeader}>
+                          <div>
+                            <div style={A.awardTitle}>{award.title}</div>
+                            {award.description && <div style={A.awardDesc}>{award.description}</div>}
+                            <div style={A.awardMeta}>{totalAwardVotes} total votes · {nominees.length} nominees</div>
+                          </div>
+                          {/* <button
+                            style={{...A.dangerBtn, opacity:deleting===award.id?0.5:1}}
+                            disabled={saving||deleting===award.id}
+                            onClick={()=>handleDeleteAward(award.id,award.title)}
+                          >
+                            {deleting===award.id ? 'Deleting…' : '🗑 Delete Award'}
+                          </button> */}
                         </div>
-                      ))}
-                    </div>
-                    <div style={styles.voteList}>
-                      {(award.votes || []).slice(0, 5).map(vote => (
-                        <div key={`${vote.paymentReference || vote.email}-${vote.createdAt}`} style={styles.voteChip}>
-                          {vote.name} voted for {vote.nominee} x {vote.quantity || 1}
+
+                        {/* nominee leaderboard */}
+                        <div style={A.nomineeLeaderboard}>
+                          {nominees.length===0
+                            ? <p style={A.empty}>No nominees.</p>
+                            : nominees
+                                .map(n=>({...n,votes:countNomineeVotes(award,n)}))
+                                .sort((a,b)=>b.votes-a.votes)
+                                .map((n,rank)=>{
+                                  const pct = totalAwardVotes>0 ? Math.round((n.votes/totalAwardVotes)*100) : 0
+                                  const isLeader = rank===0&&n.votes>0
+                                  return (
+                                    <div key={n.slug||n.name} style={{...A.nomineeRow,...(isLeader?A.nomineeRowLeader:{})}}>
+                                      {/* rank */}
+                                      <div style={{...A.rankBadge,...(rank<3?{background:['#fbbf24','#9ca3af','#f97316'][rank]+'22',color:['#fbbf24','#9ca3af','#f97316'][rank]}:{})}}>
+                                        #{rank+1}
+                                      </div>
+                                      {/* avatar */}
+                                      {n.imageUrl
+                                        ? <img src={n.imageUrl} alt={n.name} style={A.nomineeAvatar}/>
+                                        : <div style={A.nomineeAvatarFb}>{String(n.name).charAt(0).toUpperCase()}</div>
+                                      }
+                                      {/* name + bar */}
+                                      <div style={{flex:1,minWidth:0}}>
+                                        <div style={A.nomineeName}>
+                                          {n.name}
+                                          {isLeader && <span style={A.leaderTag}>👑 Leading</span>}
+                                        </div>
+                                        <div style={A.barTrack}>
+                                          <div style={{...A.barFill,width:`${pct}%`,background:isLeader?'#a78bfa':'rgba(255,255,255,0.25)'}}/>
+                                        </div>
+                                      </div>
+                                      {/* vote count */}
+                                      <div style={A.nomineeVotes}>
+                                        <span style={{...A.voteCount,...(isLeader?{color:'#a78bfa'}:{})}}>{n.votes}</span>
+                                        <span style={A.votePct}>{pct}%</span>
+                                      </div>
+                                    </div>
+                                  )
+                                })
+                          }
                         </div>
-                      ))}
-                    </div>
-                  </div>
+
+                        {/* recent votes */}
+                        {(award.votes||[]).length>0 && (
+                          <div style={A.recentVotes}>
+                            <div style={A.recentVotesLabel}>Recent votes</div>
+                            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                              {(award.votes||[]).slice(0,5).map((v,i)=>(
+                                <div key={i} style={A.voteChip}>
+                                  <strong>{v.name||v.email}</strong> → {v.nominee} × {v.quantity||1}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-              ))}
-            </div>
+            }
           </div>
-        </section>
+        </div>
       </main>
     </div>
   )
 }
 
+/* ─── sub-components ─── */
 function Shell({ message, actionLabel, onAction }) {
   return (
-    <div style={styles.shell}>
-      <div style={styles.shellCard}>
-        <div style={styles.shellTitle}>{message}</div>
-        {onAction && <button type="button" style={styles.primaryBtn} onClick={onAction}>{actionLabel || 'Continue'}</button>}
+    <div style={{minHeight:'100vh',display:'grid',placeItems:'center',background:'#0f0f13',color:'#f1f1f5',fontFamily:"'DM Sans',system-ui,sans-serif",padding:16}}>
+      <div style={{padding:32,borderRadius:20,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.08)',textAlign:'center',maxWidth:400,width:'100%',boxSizing:'border-box'}}>
+        <div style={{fontSize:18,marginBottom:16}}>{message}</div>
+        {onAction && <button onClick={onAction} style={{background:'rgba(255,255,255,0.1)',color:'#f1f1f5',border:'1px solid rgba(255,255,255,0.12)',borderRadius:10,padding:'10px 22px',cursor:'pointer'}}>{actionLabel}</button>}
       </div>
     </div>
   )
 }
 
-function StatCard({ label, value }) {
+function FormField({ label, children }) {
   return (
-    <div style={styles.statCard}>
-      <div style={styles.statLabel}>{label}</div>
-      <div style={styles.statValue}>{value}</div>
+    <label style={{display:'grid',gap:6}}>
+      <span style={{fontSize:11.5,fontWeight:700,color:'#6b6b7a',textTransform:'uppercase',letterSpacing:'.5px'}}>{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function TicketList({ tickets, type }) {
+  if (tickets.length===0) return <p style={A.empty}>{type==='paid'?'No paid tickets yet.':type==='scanned'?'No check-ins yet.':'No confirmed tickets waiting to scan.'}</p>
+  return (
+    <div style={{display:'grid',gap:8,marginTop:4}}>
+      {tickets.map(ticket=>(
+        <div key={ticket.id} style={A.ticketRow}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={A.ticketName}>{ticket.attendeeName}</div>
+            <div style={A.ticketEmail}>{ticket.attendeeEmail}</div>
+            {type==='scanned'&&ticket.checkedInAt&&(
+              <div style={A.ticketTime}>
+                {new Intl.DateTimeFormat('en-NG',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(ticket.checkedInAt))}
+              </div>
+            )}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5,flexShrink:0}}>
+            <span style={{...A.chip,...(type==='unscanned'?A.chipOff:A.chipOn)}}>
+              {type==='paid'?'Paid':type==='scanned'?'✓ Scanned':'⏳ Pending'}
+            </span>
+            <span style={A.ticketAmount}>₦{Number(ticket.price||0).toLocaleString()}</span>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
 
-function formatCheckedInAt(value) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat('en-NG', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(date)
-}
+/* ─── styles ─── */
+const A = {
+  page:      { minHeight:'100vh', background:'#0c0c10', color:'#f0f0f4', fontFamily:"'DM Sans',system-ui,sans-serif", WebkitFontSmoothing:'antialiased' },
+  topbar:    { display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16, flexWrap:'wrap', padding:'20px 28px', borderBottom:'1px solid rgba(255,255,255,0.06)', background:'rgba(12,12,16,0.9)', position:'sticky', top:0, zIndex:100, backdropFilter:'blur(18px)' },
+  kicker:    { fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'1.5px', color:'#a78bfa', marginBottom:4 },
+  pageTitle: { margin:0, fontSize:'clamp(22px,3.5vw,36px)', fontWeight:900, letterSpacing:'-.04em', color:'#f0f0f4' },
 
-const styles = {
-  page: { minHeight: '100vh', background: '#0f0f13', color: '#f1f1f5', fontFamily: "'DM Sans', system-ui, sans-serif" },
-  shell: { minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0f0f13', color: '#f1f1f5', fontFamily: "'DM Sans', system-ui, sans-serif" },
-  shellCard: { padding: 28, borderRadius: 18, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' },
-  shellTitle: { fontSize: 18, marginBottom: 12 },
-  topbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '24px 28px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(16,16,20,0.82)', position: 'sticky', top: 0, backdropFilter: 'blur(18px)' },
-  kicker: { color: '#a78bfa', fontWeight: 800, fontSize: 12, textTransform: 'uppercase', letterSpacing: '.12em' },
-  title: { margin: '6px 0 0', fontSize: 'clamp(26px, 4vw, 44px)', letterSpacing: '-.04em' },
-  backBtn: { border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.07)', color: '#f1f1f5', borderRadius: 999, padding: '10px 16px', fontWeight: 800, cursor: 'pointer' },
-  main: { maxWidth: 1180, margin: '0 auto', padding: '28px' },
-  heroGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 18 },
-  statCard: { padding: 18, borderRadius: 18, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)' },
-  statLabel: { color: '#a9a9b6', fontSize: 13, marginBottom: 8 },
-  statValue: { fontSize: 30, fontWeight: 900, letterSpacing: '-.04em' },
-  grid: { display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 16, alignItems: 'start' },
-  panel: { padding: 18, borderRadius: 20, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)' },
-  panelWide: { gridColumn: '1 / -1', padding: 18, borderRadius: 20, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)' },
-  panelHead: { fontSize: 18, fontWeight: 900, marginBottom: 14 },
-  form: { display: 'grid', gap: 12 },
-  field: { display: 'grid', gap: 8 },
-  label: { color: '#a9a9b6', fontSize: 13, fontWeight: 700 },
-  input: { width: '100%', boxSizing: 'border-box', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.2)', color: '#f1f1f5', padding: '12px 14px', fontFamily: "'DM Sans', system-ui, sans-serif" },
-  textarea: { width: '100%', boxSizing: 'border-box', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.2)', color: '#f1f1f5', padding: '12px 14px', fontFamily: "'DM Sans', system-ui, sans-serif", resize: 'vertical' },
-  helper: { color: '#a9a9b6', fontSize: 12, marginTop: -4 },
-  primaryBtn: { border: 'none', borderRadius: 14, padding: '12px 16px', background: '#f1f1f5', color: '#111', fontWeight: 800, cursor: 'pointer' },
-  secondaryBtn: { border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: '#f1f1f5', borderRadius: 12, padding: '10px 14px', fontWeight: 800, cursor: 'pointer' },
-  success: { padding: '12px 14px', borderRadius: 14, background: 'rgba(34,197,94,0.12)', color: '#86efac', marginBottom: 12, fontWeight: 700 },
-  error: { padding: '12px 14px', borderRadius: 14, background: 'rgba(248,113,113,0.12)', color: '#fca5a5', marginBottom: 12, fontWeight: 700 },
-  list: { display: 'grid', gap: 10 },
-  empty: { color: '#a9a9b6' },
-  listItem: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: 14, borderRadius: 16, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)' },
-  awardItem: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', padding: 14, borderRadius: 16, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)' },
-  itemTitle: { fontSize: 15, fontWeight: 800 },
-  itemMeta: { color: '#a9a9b6', fontSize: 13, marginTop: 4 },
-  amount: { fontWeight: 900, color: '#ddd6fe' },
-  voteBox: { minWidth: 180, textAlign: 'right' },
-  voteSectionLabel: { marginTop: 8, color: '#a9a9b6', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' },
-  statusChipOn: { display: 'inline-flex', marginTop: 8, padding: '6px 10px', borderRadius: 999, background: 'rgba(34,197,94,0.12)', color: '#86efac', fontSize: 12, fontWeight: 700 },
-  statusChipOff: { display: 'inline-flex', marginTop: 8, padding: '6px 10px', borderRadius: 999, background: 'rgba(248,113,113,0.12)', color: '#fca5a5', fontSize: 12, fontWeight: 700 },
-  nomineeList: { display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginTop: 10 },
-  nomineeChip: { padding: '6px 10px', borderRadius: 999, background: 'rgba(59,130,246,0.14)', color: '#bfdbfe', fontSize: 12, fontWeight: 700 },
-  voteList: { display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginTop: 10 },
-  voteChip: { padding: '6px 10px', borderRadius: 999, background: 'rgba(167,139,250,0.14)', color: '#ddd6fe', fontSize: 12, fontWeight: 700 },
+  main:      { maxWidth:1280, margin:'0 auto', padding:'28px 24px 80px' },
+
+  statsGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))', gap:12, marginBottom:24 },
+  statCard:  { padding:'18px 16px', borderRadius:16, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)' },
+  statLabel: { fontSize:12, color:'#6b6b7a', marginBottom:8, fontWeight:600 },
+  statValue: { fontSize:30, fontWeight:900, letterSpacing:'-.04em', lineHeight:1 },
+
+  grid:      { display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))', gap:16, alignItems:'start' },
+  panel:     { padding:22, borderRadius:20, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)' },
+  panelWide: { gridColumn:'1 / -1', padding:22, borderRadius:20, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)' },
+  panelHead: { display:'flex', alignItems:'center', gap:8, fontSize:16, fontWeight:800, marginBottom:16, color:'#f0f0f4' },
+  panelIcon: { fontSize:18 },
+  countBadge:{ marginLeft:'auto', fontSize:12, fontWeight:700, background:'rgba(255,255,255,0.08)', borderRadius:999, padding:'2px 10px', color:'#9ca3af' },
+
+  input:     { width:'100%', boxSizing:'border-box', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, color:'#f0f0f4', padding:'11px 14px', fontFamily:"'DM Sans',system-ui,sans-serif", fontSize:14, outline:'none' },
+  textarea:  { resize:'vertical' },
+  helperText:{ fontSize:12, color:'#6b6b7a', margin:'-8px 0 0' },
+
+  nomineeCard:    { display:'flex', gap:12, alignItems:'flex-start', padding:14, borderRadius:14, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' },
+
+  primaryBtn:    { width:'100%', background:'#f0f0f4', color:'#111', border:'none', borderRadius:12, padding:'13px 0', fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:"'DM Sans',system-ui,sans-serif" },
+  accentBtn:     { background:'#a78bfa', color:'#1a0533', border:'none', borderRadius:999, padding:'9px 18px', fontWeight:800, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  ghostBtn:      { background:'rgba(255,255,255,0.07)', color:'#f0f0f4', border:'1px solid rgba(255,255,255,0.1)', borderRadius:999, padding:'9px 18px', fontWeight:700, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  ghostSmBtn:    { background:'rgba(255,255,255,0.06)', color:'#b0b0c0', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'7px 12px', fontWeight:700, cursor:'pointer', fontSize:12, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  addNomineeBtn: { background:'rgba(167,139,250,0.1)', color:'#c4b5fd', border:'1px dashed rgba(167,139,250,0.3)', borderRadius:10, padding:'11px', fontWeight:700, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  dangerBtn:     { background:'rgba(248,113,113,0.1)', color:'#fca5a5', border:'1px solid rgba(248,113,113,0.25)', borderRadius:10, padding:'9px 16px', fontWeight:800, cursor:'pointer', fontSize:13, fontFamily:"'DM Sans',system-ui,sans-serif", flexShrink:0, whiteSpace:'nowrap' },
+  dangerSmBtn:   { background:'rgba(248,113,113,0.08)', color:'#fca5a5', border:'1px solid rgba(248,113,113,0.2)', borderRadius:8, padding:'7px 12px', fontWeight:700, cursor:'pointer', fontSize:12, fontFamily:"'DM Sans',system-ui,sans-serif" },
+
+  successBanner: { padding:'12px 14px', borderRadius:12, background:'rgba(74,222,128,0.1)', color:'#86efac', marginBottom:14, fontWeight:700, fontSize:14, border:'1px solid rgba(74,222,128,0.2)' },
+  errorBanner:   { padding:'12px 14px', borderRadius:12, background:'rgba(248,113,113,0.1)', color:'#fca5a5', marginBottom:14, fontWeight:700, fontSize:14, border:'1px solid rgba(248,113,113,0.2)' },
+
+  ticketRow:     { display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, padding:'12px 14px', borderRadius:14, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' },
+  ticketName:    { fontSize:14, fontWeight:700, color:'#f0f0f4', marginBottom:2 },
+  ticketEmail:   { fontSize:12, color:'#6b6b7a' },
+  ticketTime:    { fontSize:11, color:'#4ade80', marginTop:3 },
+  ticketAmount:  { fontSize:13, fontWeight:700, color:'#ddd6fe' },
+  chip:          { display:'inline-block', padding:'4px 10px', borderRadius:999, fontSize:11, fontWeight:700 },
+  chipOn:        { background:'rgba(74,222,128,0.12)', color:'#86efac' },
+  chipOff:       { background:'rgba(248,113,113,0.1)', color:'#fca5a5' },
+  empty:         { color:'#6b6b7a', fontSize:14, padding:'8px 0' },
+
+  /* award card */
+  awardCard:    { border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, overflow:'hidden' },
+  awardHeader:  { display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16, padding:'18px 20px', borderBottom:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.02)', flexWrap:'wrap' },
+  awardTitle:   { fontSize:17, fontWeight:800, color:'#f0f0f4', marginBottom:4 },
+  awardDesc:    { fontSize:13, color:'#9ca3af', marginBottom:6 },
+  awardMeta:    { fontSize:12, color:'#6b6b7a', fontWeight:600 },
+
+  /* nominee leaderboard */
+  nomineeLeaderboard: { padding:'16px 20px', display:'grid', gap:10 },
+  nomineeRow:         { display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', transition:'border-color .2s' },
+  nomineeRowLeader:   { background:'rgba(167,139,250,0.07)', border:'1px solid rgba(167,139,250,0.2)' },
+  rankBadge:          { fontSize:11, fontWeight:800, color:'#6b6b7a', background:'rgba(255,255,255,0.07)', borderRadius:6, padding:'3px 8px', flexShrink:0, minWidth:32, textAlign:'center' },
+  nomineeAvatar:      { width:38, height:38, borderRadius:'50%', objectFit:'cover', flexShrink:0 },
+  nomineeAvatarFb:    { width:38, height:38, borderRadius:'50%', background:'rgba(167,139,250,0.15)', color:'#c4b5fd', display:'grid', placeItems:'center', fontWeight:800, fontSize:15, flexShrink:0 },
+  nomineeName:        { fontSize:14, fontWeight:700, color:'#f0f0f4', marginBottom:6, display:'flex', alignItems:'center', gap:8 },
+  leaderTag:          { fontSize:11, fontWeight:700, color:'#a78bfa', background:'rgba(167,139,250,0.12)', borderRadius:999, padding:'2px 8px' },
+  barTrack:           { height:5, background:'rgba(255,255,255,0.07)', borderRadius:999, overflow:'hidden' },
+  barFill:            { height:'100%', borderRadius:999, transition:'width .6s ease', minWidth:4 },
+  nomineeVotes:       { display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, flexShrink:0, minWidth:56 },
+  voteCount:          { fontSize:20, fontWeight:900, letterSpacing:'-.5px', color:'#f0f0f4', lineHeight:1 },
+  votePct:            { fontSize:11, color:'#6b6b7a', fontWeight:600 },
+
+  recentVotes:      { padding:'12px 20px 16px', borderTop:'1px solid rgba(255,255,255,0.05)' },
+  recentVotesLabel: { fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.5px', color:'#6b6b7a', marginBottom:8 },
+  voteChip:         { padding:'6px 12px', borderRadius:999, background:'rgba(167,139,250,0.1)', color:'#ddd6fe', fontSize:12, fontWeight:600, border:'1px solid rgba(167,139,250,0.15)' },
 }
