@@ -20,6 +20,7 @@ function formatDateLong(d) {
   return isNaN(dt.getTime())?d:new Intl.DateTimeFormat('en-NG',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(dt)
 }
 function formatTimeRange(s,e) { return [s,e].filter(Boolean).join(' – ')||'Time TBC' }
+const MIN_VOTE_QTY = 2
 function deriveNameFromEmail(email) {
   return String(email||'').split('@')[0].replace(/[._+-]+/g,' ').trim()
     .split(' ').filter(Boolean).map(p=>p.charAt(0).toUpperCase()+p.slice(1)).join(' ')
@@ -111,7 +112,7 @@ export default function VotingPage() {
   const [error,      setError]      = useState('')
   const [voteMsg,    setVoteMsg]    = useState('')
   const [votingId,   setVotingId]   = useState('')
-  const [quantity,   setQuantity]   = useState(1)
+  const [quantity,   setQuantity]   = useState(MIN_VOTE_QTY)
   const [selected,   setSelected]   = useState('')
   const [form,       setForm]       = useState({name:'',email:''})
 
@@ -205,9 +206,12 @@ export default function VotingPage() {
     setVoteMsg(''); setError('')
     if (!form.email)     { setVoteMsg('Please enter your email first.'); return }
     if (!currentNominee) { setVoteMsg('Please select a nominee.'); return }
-    
+
+    if (quantity < MIN_VOTE_QTY) { setVoteMsg('Minimum vote is 2'); return }
+    if (!paystackKey)    { console.error('Paystack public key is missing in environment variables'); setVoteMsg('Payment key is missing.'); return }
+    if (!window.PaystackPop) { setVoteMsg('Payment system loading, please try again.'); return }
+
     setVotingId(activeKey)
-    
     try {
       // 1. Make an API request to your backend to initialize the payment session
       const res = await fetch(`${API_BASE}/awards/events/${eventId}/${activeKey}/vote/initialize`, {
@@ -433,9 +437,9 @@ export default function VotingPage() {
             <FormField label="Number of Votes">
               <div style={S.qRow}>
                 <button style={S.qBtn} type="button"
-                  onClick={()=>setQuantity(q=>Math.max(1,q-1))}>−</button>
-                <input type="number" min="1" value={quantity}
-                  onChange={e=>setQuantity(Math.max(1,Number(e.target.value||1)))}
+                  onClick={()=>setQuantity(q=>Math.max(MIN_VOTE_QTY,q-1))}>−</button>
+                <input type="number" min={MIN_VOTE_QTY} value={quantity}
+                  onChange={e=>setQuantity(Math.max(MIN_VOTE_QTY,Number(e.target.value||MIN_VOTE_QTY)))}
                   style={{...S.input,textAlign:'center',flex:1}}/>
                 <button style={S.qBtn} type="button"
                   onClick={()=>setQuantity(q=>q+1)}>+</button>
