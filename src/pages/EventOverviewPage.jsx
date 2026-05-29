@@ -88,6 +88,9 @@ export default function EventOverviewPage({ user = null }) {
       startTime: event.startTime || '', endDate: event.endDate || '',
       endTime: event.endTime || '', location: event.location || '',
       coverImage: event.coverImage || '',
+      description: event.description || '',
+      votingRules: event.votingRules || '',
+      status: event.status || 'active',
       ticketVipPrice: event?.ticketPrices?.vip ?? '',
       ticketTablePrice: event?.ticketPrices?.table ?? '',
     })
@@ -130,7 +133,12 @@ export default function EventOverviewPage({ user = null }) {
         body: JSON.stringify(payloadBody),
       })
       const payload = await res.json()
-      if (!res.ok) throw new Error(payload.message)
+      if (!res.ok) {
+        const message = res.status === 403
+          ? 'You are not authorized to edit this event'
+          : (payload.message || 'Update failed')
+        throw new Error(message)
+      }
       setEvent(payload.data?.event); setEditing(false); showToast('Event saved.')
     } catch (err) { setError(err.message) }
     finally       { setSavingEvent(false) }
@@ -150,7 +158,12 @@ export default function EventOverviewPage({ user = null }) {
         body: JSON.stringify({ isPublic: !event.isPublic }),
       })
       const payload = await res.json()
-      if (!res.ok) throw new Error(payload.message)
+      if (!res.ok) {
+        const message = res.status === 403
+          ? 'You are not authorized to edit this event'
+          : (payload.message || 'Update failed')
+        throw new Error(message)
+      }
       setEvent(payload.data?.event)
     } catch (err) { setError(err.message) }
     finally       { setSavingVis(false) }
@@ -498,6 +511,36 @@ export default function EventOverviewPage({ user = null }) {
                       />
                     </label>
                   ))}
+                  <label style={{ ...s.editField, gridColumn: '1/-1' }}>
+                    <span style={s.editLabel}>Description</span>
+                    <textarea
+                      value={editForm.description}
+                      onChange={e => setEditForm(p=>({...p,description:e.target.value}))}
+                      style={s.editTextarea}
+                      rows={3}
+                    />
+                  </label>
+                  <label style={{ ...s.editField, gridColumn: '1/-1' }}>
+                    <span style={s.editLabel}>Voting Rules</span>
+                    <textarea
+                      value={editForm.votingRules}
+                      onChange={e => setEditForm(p=>({...p,votingRules:e.target.value}))}
+                      style={s.editTextarea}
+                      rows={3}
+                      placeholder="Optional rules for voters"
+                    />
+                  </label>
+                  <label style={s.editField}>
+                    <span style={s.editLabel}>Status</span>
+                    <select
+                      value={editForm.status}
+                      onChange={e => setEditForm(p=>({...p,status:e.target.value}))}
+                      style={s.editSelect}
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </label>
                   <label style={{ ...s.editField, gridColumn: '1/-1' }}>
                     <span style={s.editLabel}>VIP Price (₦)</span>
                       <input type="text" inputMode="numeric" min="0" step="0.01" value={editForm.ticketVipPrice}
@@ -973,6 +1016,8 @@ const s = {
   editField:   { display:'flex', flexDirection:'column', gap:6 },
   editLabel:   { fontSize:12.5, fontWeight:600, color:'#9a9aaa' },
   editInput:   { background:'rgba(0,0,0,0.2)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'10px 12px', color:'#fff', fontSize:13.5, fontFamily:'inherit' },
+  editTextarea:{ background:'rgba(0,0,0,0.2)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'10px 12px', color:'#fff', fontSize:13.5, fontFamily:'inherit', resize:'vertical' },
+  editSelect:  { background:'rgba(0,0,0,0.2)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'10px 12px', color:'#fff', fontSize:13.5, fontFamily:'inherit' },
   fileInput:   { fontSize:13, color:'#7a7a8a' },
   editFooter:  { display:'flex', justifyContent:'flex-end', gap:10, marginTop:10 }
   , inputError: { color: '#fca5a5', marginTop: 6, fontSize: 13, fontWeight: 700 }

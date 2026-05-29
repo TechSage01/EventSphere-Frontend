@@ -282,9 +282,11 @@ export default function EventsPage({ user = null }) {
                 key={ev.id}
                 ev={ev}
                 onOpen={() => navigate(`/events/${ev.id}`)}
+                onEdit={() => navigate(`/events/${ev.id}`)}
                 onDelete={() => handleDeleteEvent(ev.id, ev.title)}
                 deleting={deletingEventId === ev.id}
                 responsive={responsive}
+                user={user}
               />
             ))}
           </div>
@@ -395,13 +397,17 @@ function isUpcoming(event) {
 function EventCard({
   ev,
   onOpen,
+  onEdit,
   onDelete,
   deleting = false,
   responsive = null,
+  user = null,
 }) {
   const dateLabel = formatEventDate(ev.startDate);
   const timeLabel = [ev.startTime, ev.endTime].filter(Boolean).join(" - ");
   const statusLabel = ev.isPublic ? "Public" : "Private";
+  const ownerId = ev.createdByAdminId || ev.organizerId;
+  const isOwner = String(ownerId || "") === String(user?.userId || "");
 
   return (
     <div
@@ -431,22 +437,40 @@ function EventCard({
       <div style={{ ...styles.cardBody, ...(responsive?.cardBody || {}) }}>
         <div style={styles.cardHeaderRow}>
           <span />
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation(); // Crucial: stops the card from opening the event details page
-              onDelete?.();
-            }}
-            disabled={deleting}
-            aria-label={`Delete ${ev.title}`}
-            title="Delete event"
-            style={{
-              ...styles.deleteBtn,
-              ...(deleting ? styles.deleteBtnDisabled : {}),
-            }}
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </button>
+          <div style={styles.cardActions}>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit?.();
+                }}
+                aria-label={`Edit ${ev.title}`}
+                title="Edit event"
+                style={styles.editBtn}
+              >
+                Edit
+              </button>
+            )}
+            {isOwner && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete?.();
+                }}
+                disabled={deleting}
+                aria-label={`Delete ${ev.title}`}
+                title="Delete event"
+                style={{
+                  ...styles.deleteBtn,
+                  ...(deleting ? styles.deleteBtnDisabled : {}),
+                }}
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            )}
+          </div>
         </div>
         <p style={{ ...styles.cardDate, ...(responsive?.cardDate || {}) }}>
           {dateLabel}
@@ -693,6 +717,22 @@ const styles = {
     justifyContent: "space-between",
     gap: 12,
     marginBottom: 8,
+  },
+  cardActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  editBtn: {
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(167,139,250,0.16)",
+    color: "#ddd6fe",
+    borderRadius: 999,
+    padding: "6px 12px",
+    fontSize: 11,
+    fontWeight: 800,
+    cursor: "pointer",
+    transition: "transform 0.15s ease, background 0.15s ease, border-color 0.15s ease",
   },
   deleteBtn: {
     border: "1px solid rgba(255,255,255,0.12)",

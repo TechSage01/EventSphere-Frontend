@@ -191,7 +191,6 @@ export default function AdminEventPage({ user=null }) {
   async function handleSaveNomineeEdit() {
     if (!editingNominee || !nomineeEdits) return
     if (!window.confirm('Update this nominee?')) return
-    setSavingNomineeEdit(true)
     setNomineeError('')
     try {
       let voteMetadata = undefined
@@ -203,6 +202,8 @@ export default function AdminEventPage({ user=null }) {
           return
         }
       }
+
+      setSavingNomineeEdit(true)
 
       const token = localStorage.getItem('es_token')
       const res = await fetch(`${API_BASE}/nominees/${editingNominee.id}`, {
@@ -217,7 +218,12 @@ export default function AdminEventPage({ user=null }) {
         }),
       })
       const payload = await res.json()
-      if (!res.ok) throw new Error(payload.message || 'Failed to update nominee')
+      if (!res.ok) {
+        const message = res.status === 403
+          ? 'Not authorized'
+          : (payload.message || 'Failed to update nominee')
+        throw new Error(message)
+      }
 
       const updatedNominee = payload.data?.nominee || payload.data || payload
       setData(prev => {
@@ -249,6 +255,11 @@ export default function AdminEventPage({ user=null }) {
   const tablePaidCount = paidTickets.filter(ticket => String(ticket?.ticketType || '').toLowerCase() === 'table').length
 
   const currentNominees = form.nominees.length>0 ? form.nominees : [{name:'',imageUrl:''}]
+  const nominees = Array.isArray(data?.nominees) ? data.nominees : []
+  const nomineesByAward = safeAwards.map(award => ({
+    award,
+    nominees: nominees.filter(nominee => String(nominee.awardId) === String(award.id)),
+  }))
 
   const isOrganizer = String(event.organizerId) === String(user?.userId)
   const isCoHost = Boolean(user?.email && Array.isArray(event.coHosts) && event.coHosts.some(h=>String(h.email||'').toLowerCase() === String(user.email||'').toLowerCase()))
@@ -427,7 +438,7 @@ export default function AdminEventPage({ user=null }) {
                                     const token = localStorage.getItem('es_token')
                                     const res = await fetch(`${API_BASE}/awards/events/${eventId}/${award.id}`,{
                                       method:'PATCH', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`},
-                                      body: JSON.stringify({ title: awardEdits.title, description: awardEdits.description, nominees: awardEdits.nominees })
+                                      body: JSON.stringify({ title: awardEdits.title, description: awardEdits.description })
                                     })
                                     const payload = await res.json()
                                     if (!res.ok) throw new Error(payload.message||'Failed to update award')
@@ -446,7 +457,7 @@ export default function AdminEventPage({ user=null }) {
                               </>
                             ) : (
                               <>
-                                <button style={A.ghostSmBtn} onClick={()=>{ setEditingAwardId(award.id); setAwardEdits({ title: award.title||'', description: award.description||'', nominees: nominees.map(n=>({name:n.name||'', imageUrl:n.imageUrl||''})) }) }}>Edit</button>
+                                <button style={A.ghostSmBtn} onClick={()=>{ setEditingAwardId(award.id); setAwardEdits({ title: award.title||'', description: award.description||'' }) }}>Edit</button>
                                 {/* delete button commented out; keep for future */}
                               </>
                             )}
@@ -514,8 +525,101 @@ export default function AdminEventPage({ user=null }) {
                 </div>
             }
           </div>
+
+          {/* NOMINEES — full width */}
+          <div style={A.panelWide}>
+            <div style={A.panelHead}><span style={A.panelIcon}>🧿</span> Nominees <span style={A.countBadge}>{nominees.length}</span></div>
+            {nominees.length === 0
+              ? <p style={A.empty}>No nominees yet.</p>
+              : <div style={{display:'grid',gap:16}}>
+                  {nomineesByAward.map(group => (
+                    <div key={group.award.id} style={A.nomineeGroup}>
+                      <div style={A.nomineeGroupTitle}>{group.award.title}</div>
+                      {group.nominees.length === 0 ? (
+                        <p style={A.empty}>No nominees for this award.</p>
+                      ) : (
+                        <div style={A.nomineeGrid}>
+                          {group.nominees.map(nominee => {
+                            const canEdit = String(nominee.createdByAdminId || '') === String(user?.userId || '')
+                            return (
+                              <div key={nominee.id} style={A.nomineeCardLg}>
+                                <div style={{display:'flex',alignItems:'center',gap:12}}>
+                                  {nominee.imageUrl
+                                    ? <img src={nominee.imageUrl} alt={nominee.name} style={A.nomineeAvatarLg}/>
+                                    : <div style={A.nomineeAvatarFbLg}>{String(nominee.name || 'N').charAt(0).toUpperCase()}</div>
+                                  }
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <div style={A.nomineeNameLg}>{nominee.name}</div>
+                                    {nominee.category && <div style={A.nomineeMeta}>{nominee.category}</div>}
+                                    <div style={A.nomineeMeta}>Votes: {nominee.voteCount || 0} · Voters: {nominee.voterCount || 0}</div>
+                                  </div>
+                                </div>
+                                <div style={A.nomineeActions}>
+                                  <button style={{...A.ghostSmBtn, opacity: canEdit ? 1 : 0.5}} disabled={!canEdit}
+                                    onClick={() => openNomineeEdit(nominee)}>
+                                    Edit
+                                  </button>
+                                  {!canEdit && <span style={A.nomineeLock}>Not authorized</span>}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+            }
+          </div>
         </div>
       </main>
+
+      {editingNominee && nomineeEdits && (
+        <div style={A.modalOverlay}>
+          <div style={A.modalCard}>
+            <div style={A.modalHeader}>
+              <div>
+                <div style={A.modalTitle}>Edit Nominee</div>
+                <div style={A.modalSub}>Only the nominee creator can edit.</div>
+              </div>
+              <button style={A.ghostSmBtn} onClick={() => { setEditingNominee(null); setNomineeEdits(null); setNomineeError('') }}>
+                Close
+              </button>
+            </div>
+
+            {nomineeError && <div style={A.errorBanner}>{nomineeError}</div>}
+
+            <div style={A.modalBody}>
+              <FormField label="Nominee Name">
+                <input value={nomineeEdits.name} onChange={e=>setNomineeEdits(p=>({...p,name:e.target.value}))} style={A.input} />
+              </FormField>
+              <FormField label="Description">
+                <textarea value={nomineeEdits.description} onChange={e=>setNomineeEdits(p=>({...p,description:e.target.value}))}
+                  style={{...A.input,...A.textarea}} rows={3} />
+              </FormField>
+              <FormField label="Image URL">
+                <input value={nomineeEdits.imageUrl} onChange={e=>setNomineeEdits(p=>({...p,imageUrl:e.target.value}))} style={A.input} />
+              </FormField>
+              <FormField label="Category">
+                <input value={nomineeEdits.category} onChange={e=>setNomineeEdits(p=>({...p,category:e.target.value}))} style={A.input} />
+              </FormField>
+              <FormField label="Vote Metadata (JSON)">
+                <textarea value={nomineeEdits.voteMetadataText} onChange={e=>setNomineeEdits(p=>({...p,voteMetadataText:e.target.value}))}
+                  style={{...A.input,...A.textarea}} rows={4} placeholder='{"rule":"max-5"}' />
+              </FormField>
+            </div>
+
+            <div style={A.modalFooter}>
+              <button style={A.ghostSmBtn} onClick={() => { setEditingNominee(null); setNomineeEdits(null); setNomineeError('') }}>
+                Cancel
+              </button>
+              <button style={A.accentBtn} disabled={savingNomineeEdit} onClick={handleSaveNomineeEdit}>
+                {savingNomineeEdit ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -638,6 +742,25 @@ const A = {
   nomineeVotes:       { display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, flexShrink:0, minWidth:56 },
   voteCount:          { fontSize:20, fontWeight:900, letterSpacing:'-.5px', color:'#f0f0f4', lineHeight:1 },
   votePct:            { fontSize:11, color:'#6b6b7a', fontWeight:600 },
+
+  nomineeGroup:       { padding:16, borderRadius:14, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)' },
+  nomineeGroupTitle:  { fontSize:15, fontWeight:800, marginBottom:12, color:'#f0f0f4' },
+  nomineeGrid:        { display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:12 },
+  nomineeCardLg:      { display:'flex', flexDirection:'column', gap:12, padding:14, borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' },
+  nomineeActions:     { display:'flex', alignItems:'center', gap:8, justifyContent:'space-between' },
+  nomineeAvatarLg:    { width:48, height:48, borderRadius:'50%', objectFit:'cover', flexShrink:0 },
+  nomineeAvatarFbLg:  { width:48, height:48, borderRadius:'50%', background:'rgba(167,139,250,0.15)', color:'#c4b5fd', display:'grid', placeItems:'center', fontWeight:800, fontSize:16, flexShrink:0 },
+  nomineeNameLg:      { fontSize:14, fontWeight:800, color:'#f0f0f4', marginBottom:4 },
+  nomineeMeta:        { fontSize:12, color:'#9ca3af' },
+  nomineeLock:        { fontSize:11, color:'#fca5a5', fontWeight:700 },
+
+  modalOverlay:       { position:'fixed', inset:0, background:'rgba(5,5,8,0.7)', display:'grid', placeItems:'center', padding:16, zIndex:120 },
+  modalCard:          { width:'min(680px, 100%)', background:'#101018', borderRadius:18, border:'1px solid rgba(255,255,255,0.08)', padding:20, boxShadow:'0 30px 80px rgba(0,0,0,0.45)' },
+  modalHeader:        { display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:16 },
+  modalTitle:         { fontSize:18, fontWeight:800, color:'#f0f0f4' },
+  modalSub:           { fontSize:12, color:'#9ca3af' },
+  modalBody:          { display:'grid', gap:12 },
+  modalFooter:        { display:'flex', justifyContent:'flex-end', gap:10, marginTop:16 },
 
   recentVotes:      { padding:'12px 20px 16px', borderTop:'1px solid rgba(255,255,255,0.05)' },
   recentVotesLabel: { fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.5px', color:'#6b6b7a', marginBottom:8 },
