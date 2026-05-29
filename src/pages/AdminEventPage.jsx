@@ -284,7 +284,7 @@ export default function AdminEventPage({ user=null }) {
                         onClick={()=>setForm(p=>({...p,nominees:currentNominees.filter((_,i)=>i!==index)}))}>
                         Remove
                       </button>
-                      <input ref={el=>{nomineeFileRefs.current[index]=el}} type="file" accept="image/*" capture="environment"
+                      <input ref={el=>{nomineeFileRefs.current[index]=el}} type="file" accept="image/*"
                         style={{display:'none'}} onChange={e=>handleNomineeFileChange(index,e.target.files?.[0])}/>
                     </div>
                   ))}
