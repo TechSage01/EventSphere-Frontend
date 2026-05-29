@@ -1,7 +1,12 @@
-
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://eventsnest-backend.onrender.com/api/$1" }
+    {
+      "source": "/api/(.*)",
+      "destination": "https://eventsnest-backend.onrender.com/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }
-
