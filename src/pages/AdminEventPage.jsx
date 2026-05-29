@@ -176,15 +176,21 @@ export default function AdminEventPage({ user=null }) {
     reader.readAsDataURL(file)
   }
 
-  function openNomineeEdit(nominee) {
+  function openNomineeEdit(award, nominee, nomineeIndex) {
     setNomineeError('')
-    setEditingNominee(nominee)
+    setEditingNominee({ awardId: award.id, nomineeIndex, mode: 'edit' })
     setNomineeEdits({
       name: nominee?.name || '',
-      description: nominee?.description || '',
       imageUrl: nominee?.imageUrl || '',
-      category: nominee?.category || '',
-      voteMetadataText: nominee?.voteMetadata ? JSON.stringify(nominee.voteMetadata, null, 2) : '',
+    })
+  }
+
+  function openNomineeAdd(award) {
+    setNomineeError('')
+    setEditingNominee({ awardId: award.id, nomineeIndex: null, mode: 'add' })
+    setNomineeEdits({
+      name: '',
+      imageUrl: '',
     })
   }
 
@@ -193,48 +199,60 @@ export default function AdminEventPage({ user=null }) {
     if (!window.confirm('Update this nominee?')) return
     setNomineeError('')
     try {
-      let voteMetadata = undefined
-      if (String(nomineeEdits.voteMetadataText || '').trim()) {
-        try {
-          voteMetadata = JSON.parse(nomineeEdits.voteMetadataText)
-        } catch {
-          setNomineeError('Vote metadata must be valid JSON')
-          return
-        }
-      }
-
       setSavingNomineeEdit(true)
 
+      const award = safeAwards.find(item => String(item.id) === String(editingNominee.awardId))
+      if (!award) {
+        throw new Error('Award not found')
+      }
+
+      const updatedNominees = getAwardNominees(award).map((nominee, index) => {
+        if (editingNominee.mode !== 'edit' || index !== editingNominee.nomineeIndex) return nominee
+        return {
+          ...nominee,
+          name: nomineeEdits.name,
+          imageUrl: nomineeEdits.imageUrl,
+        }
+      })
+
+      if (editingNominee.mode === 'add') {
+        const nomineeName = String(nomineeEdits.name || '').trim()
+        if (!nomineeName) {
+          throw new Error('Nominee name is required')
+        }
+        updatedNominees.push({
+          name: nomineeName,
+          imageUrl: String(nomineeEdits.imageUrl || '').trim(),
+          slug: slugify(nomineeName),
+        })
+      }
+
       const token = localStorage.getItem('es_token')
-      const res = await fetch(`${API_BASE}/nominees/${editingNominee.id}`, {
-        method: 'PUT',
+      const res = await fetch(`${API_BASE}/awards/events/${eventId}/${editingNominee.awardId}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          name: nomineeEdits.name,
-          description: nomineeEdits.description,
-          imageUrl: nomineeEdits.imageUrl,
-          category: nomineeEdits.category,
-          voteMetadata,
+          title: award.title,
+          description: award.description,
+          nominees: updatedNominees,
         }),
       })
       const payload = await res.json()
       if (!res.ok) {
-        const message = res.status === 403
-          ? 'Not authorized'
-          : (payload.message || 'Failed to update nominee')
-        throw new Error(message)
+        throw new Error(payload.message || 'Failed to update nominee')
       }
 
-      const updatedNominee = payload.data?.nominee || payload.data || payload
+      const updatedAward = payload.data?.award || payload.data || payload
       setData(prev => {
         if (!prev) return prev
-        const nextNominees = Array.isArray(prev.nominees)
-          ? prev.nominees.map(n => n.id === updatedNominee.id ? updatedNominee : n)
-          : prev.nominees
-        return { ...prev, nominees: nextNominees }
+        const nextAwards = Array.isArray(prev.awards)
+          ? prev.awards.map(item => String(item.id) === String(updatedAward.id) ? updatedAward : item)
+          : prev.awards
+
+        return { ...prev, awards: nextAwards }
       })
 
-      setSuccess('Updated successfully')
+      setSuccess(editingNominee.mode === 'add' ? 'Nominee added successfully.' : 'Updated successfully')
       setEditingNominee(null)
       setNomineeEdits(null)
     } catch (err) {
@@ -255,14 +273,15 @@ export default function AdminEventPage({ user=null }) {
   const tablePaidCount = paidTickets.filter(ticket => String(ticket?.ticketType || '').toLowerCase() === 'table').length
 
   const currentNominees = form.nominees.length>0 ? form.nominees : [{name:'',imageUrl:''}]
-  const nominees = Array.isArray(data?.nominees) ? data.nominees : []
   const nomineesByAward = safeAwards.map(award => ({
     award,
-    nominees: nominees.filter(nominee => String(nominee.awardId) === String(award.id)),
+    nominees: getAwardNominees(award),
   }))
+  const totalNominees = nomineesByAward.reduce((total, group) => total + group.nominees.length, 0)
 
   const isOrganizer = String(event.organizerId) === String(user?.userId)
   const isCoHost = Boolean(user?.email && Array.isArray(event.coHosts) && event.coHosts.some(h=>String(h.email||'').toLowerCase() === String(user.email||'').toLowerCase()))
+  const canManageEvent = isOrganizer || isCoHost
 
   return (
     <div style={A.page}>
@@ -458,6 +477,7 @@ export default function AdminEventPage({ user=null }) {
                             ) : (
                               <>
                                 <button style={A.ghostSmBtn} onClick={()=>{ setEditingAwardId(award.id); setAwardEdits({ title: award.title||'', description: award.description||'' }) }}>Edit</button>
+                                <button style={A.ghostSmBtn} onClick={()=>openNomineeAdd(award)}>+ Add nominee</button>
                                 {/* delete button commented out; keep for future */}
                               </>
                             )}
@@ -528,8 +548,8 @@ export default function AdminEventPage({ user=null }) {
 
           {/* NOMINEES — full width */}
           <div style={A.panelWide}>
-            <div style={A.panelHead}><span style={A.panelIcon}>🧿</span> Nominees <span style={A.countBadge}>{nominees.length}</span></div>
-            {nominees.length === 0
+            <div style={A.panelHead}><span style={A.panelIcon}>🧿</span> Nominees <span style={A.countBadge}>{totalNominees}</span></div>
+            {totalNominees === 0
               ? <p style={A.empty}>No nominees yet.</p>
               : <div style={{display:'grid',gap:16}}>
                   {nomineesByAward.map(group => (
@@ -539,8 +559,7 @@ export default function AdminEventPage({ user=null }) {
                         <p style={A.empty}>No nominees for this award.</p>
                       ) : (
                         <div style={A.nomineeGrid}>
-                          {group.nominees.map(nominee => {
-                            const canEdit = String(nominee.createdByAdminId || '') === String(user?.userId || '')
+                          {group.nominees.map((nominee, nomineeIndex) => {
                             return (
                               <div key={nominee.id} style={A.nomineeCardLg}>
                                 <div style={{display:'flex',alignItems:'center',gap:12}}>
@@ -555,11 +574,10 @@ export default function AdminEventPage({ user=null }) {
                                   </div>
                                 </div>
                                 <div style={A.nomineeActions}>
-                                  <button style={{...A.ghostSmBtn, opacity: canEdit ? 1 : 0.5}} disabled={!canEdit}
-                                    onClick={() => openNomineeEdit(nominee)}>
+                                  <button style={{...A.ghostSmBtn, opacity: canManageEvent ? 1 : 0.5}} disabled={!canManageEvent}
+                                    onClick={() => openNomineeEdit(group.award, nominee, nomineeIndex)}>
                                     Edit
                                   </button>
-                                  {!canEdit && <span style={A.nomineeLock}>Not authorized</span>}
                                 </div>
                               </div>
                             )
@@ -579,8 +597,8 @@ export default function AdminEventPage({ user=null }) {
           <div style={A.modalCard}>
             <div style={A.modalHeader}>
               <div>
-                <div style={A.modalTitle}>Edit Nominee</div>
-                <div style={A.modalSub}>Only the nominee creator can edit.</div>
+                <div style={A.modalTitle}>{editingNominee.mode === 'add' ? 'Add Nominee' : 'Edit Nominee'}</div>
+                  <div style={A.modalSub}>Organizer and co-hosts can manage nominees for this event.</div>
               </div>
               <button style={A.ghostSmBtn} onClick={() => { setEditingNominee(null); setNomineeEdits(null); setNomineeError('') }}>
                 Close
@@ -593,19 +611,8 @@ export default function AdminEventPage({ user=null }) {
               <FormField label="Nominee Name">
                 <input value={nomineeEdits.name} onChange={e=>setNomineeEdits(p=>({...p,name:e.target.value}))} style={A.input} />
               </FormField>
-              <FormField label="Description">
-                <textarea value={nomineeEdits.description} onChange={e=>setNomineeEdits(p=>({...p,description:e.target.value}))}
-                  style={{...A.input,...A.textarea}} rows={3} />
-              </FormField>
               <FormField label="Image URL">
                 <input value={nomineeEdits.imageUrl} onChange={e=>setNomineeEdits(p=>({...p,imageUrl:e.target.value}))} style={A.input} />
-              </FormField>
-              <FormField label="Category">
-                <input value={nomineeEdits.category} onChange={e=>setNomineeEdits(p=>({...p,category:e.target.value}))} style={A.input} />
-              </FormField>
-              <FormField label="Vote Metadata (JSON)">
-                <textarea value={nomineeEdits.voteMetadataText} onChange={e=>setNomineeEdits(p=>({...p,voteMetadataText:e.target.value}))}
-                  style={{...A.input,...A.textarea}} rows={4} placeholder='{"rule":"max-5"}' />
               </FormField>
             </div>
 
@@ -614,7 +621,7 @@ export default function AdminEventPage({ user=null }) {
                 Cancel
               </button>
               <button style={A.accentBtn} disabled={savingNomineeEdit} onClick={handleSaveNomineeEdit}>
-                {savingNomineeEdit ? 'Saving…' : 'Save Changes'}
+                {savingNomineeEdit ? 'Saving…' : editingNominee.mode === 'add' ? 'Add Nominee' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -664,7 +671,7 @@ function TicketList({ tickets, type }) {
             <span style={{...A.chip,...(type==='unscanned'?A.chipOff:A.chipOn)}}>
               {type==='paid'?'Paid':type==='scanned'?'✓ Scanned':'⏳ Pending'}
             </span>
-            <span style={A.ticketAmount}>₦{Number(ticket.price||0).toLocaleString()}</span>
+            <span style={A.ticketAmount}>₦{Number((ticket.amountPaid ?? ticket.price) || 0).toLocaleString()}</span>
           </div>
         </div>
       ))}

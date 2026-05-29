@@ -148,7 +148,7 @@ export default function TicketPage() {
               <div style={styles.metaRow}><span>Email</span><strong>{ticket.attendeeEmail}</strong></div>
               <div style={styles.metaRow}><span>Type</span><strong>{ticket.ticketType}</strong></div>
               <div style={styles.metaRow}><span>Status</span><strong>{ticket.status}</strong></div>
-              <div style={styles.metaRow}><span>Price</span><strong>{ticket.price ? `₦${Number(ticket.price).toLocaleString()}` : 'Free'}</strong></div>
+              <div style={styles.metaRow}><span>Amount Paid</span><strong>{ticket.amountPaid ? `₦${Number(ticket.amountPaid).toLocaleString()}` : (ticket.price ? `₦${Number(ticket.price).toLocaleString()}` : 'Free')}</strong></div>
               <button type="button" style={{ ...styles.primaryBtn, width: isNarrow ? '100%' : 'auto' }} onClick={() => navigate(`/public/events/${ticket.eventId}`)}>
                 Back to Event
               </button>
