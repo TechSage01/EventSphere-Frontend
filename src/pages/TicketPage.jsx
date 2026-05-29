@@ -13,6 +13,7 @@ export default function TicketPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [verifying, setVerifying] = useState(false)
+  const [downloadingQr, setDownloadingQr] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1024))
 
   useEffect(() => {
@@ -63,8 +64,9 @@ export default function TicketPage() {
 
         setTicket(payload.data?.ticket)
         setEvent(payload.data?.event)
+        const ticketPageUrl = `/tickets/${payload.data?.ticket?.ticketId}`
         navigate(
-          `/thank-you?type=ticket&back=${encodeURIComponent(`/public/events/${payload.data?.ticket?.eventId}`)}&title=${encodeURIComponent('Thank you for your payment')}&subtitle=${encodeURIComponent('Your ticket is confirmed. You can reserve another one for a friend next.')}`,
+          `/thank-you?type=ticket&back=${encodeURIComponent(`/public/events/${payload.data?.ticket?.eventId}`)}&ticketUrl=${encodeURIComponent(ticketPageUrl)}&title=${encodeURIComponent('Thank you for your payment')}&subtitle=${encodeURIComponent('Your ticket is confirmed. You can reserve another one for a friend next.')}`,
           { replace: true }
         )
       } catch (err) {
@@ -77,6 +79,30 @@ export default function TicketPage() {
     verifyPayment()
   }, [navigate, ticket, ticketId, searchParams])
 
+  async function handleDownloadQr() {
+    if (downloadingQr) return
+
+    setDownloadingQr(true)
+    try {
+      const res = await fetch(`${API_BASE}/tickets/${ticket.ticketId}/qr`)
+      if (!res.ok) throw new Error('Failed to download QR code')
+
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `ticket-${ticket.ticketId}-qr.png`
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDownloadingQr(false)
+    }
+  }
+
   if (loading) return <Shell message="Loading ticket..." />
   if (error && !ticket) return <Shell message={error} actionLabel="Back to Events" onAction={() => navigate('/events')} />
   if (!ticket) return <Shell message="Ticket not found" actionLabel="Back to Events" onAction={() => navigate('/events')} />
@@ -85,6 +111,7 @@ export default function TicketPage() {
   const isCompact = viewportWidth < 860
   const isNarrow = viewportWidth < 560
   const qrSize = viewportWidth < 420 ? 180 : viewportWidth < 560 ? 200 : 220
+  const showQrActions = ticket.status === 'confirmed' || searchParams.get('success') === '1'
 
   return (
     <div style={styles.page}>
@@ -105,6 +132,11 @@ export default function TicketPage() {
                 <QRCodeSVG value={ticketUrl} size={qrSize} bgColor="#ffffff" fgColor="#0b0b10" includeMargin />
               </div>
               <div style={styles.ticketId}>{ticket.ticketId}</div>
+              {showQrActions && (
+                <button type="button" style={{ ...styles.secondaryBtn, width: '100%' }} onClick={handleDownloadQr} disabled={downloadingQr}>
+                  {downloadingQr ? 'Downloading…' : 'Download QR Code'}
+                </button>
+              )}
             </div>
 
             <div style={styles.metaPanel}>
@@ -160,6 +192,7 @@ const styles = {
   ticketId: { marginTop: 14, fontFamily: 'monospace', fontSize: 12, color: '#a9a9b6', wordBreak: 'break-all', textAlign: 'center', lineHeight: 1.5 },
   metaPanel: { padding: '4px 2px 0' },
   metaRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#d4d4de', flexWrap: 'wrap' },
+  secondaryBtn: { marginTop: 16, border: '1px solid rgba(167,139,250,0.25)', borderRadius: 14, padding: '12px 16px', background: 'rgba(167,139,250,0.12)', color: '#e9d5ff', fontWeight: 800, cursor: 'pointer', transition: 'transform 0.2s ease, opacity 0.2s ease' },
   primaryBtn: { marginTop: 16, border: 'none', borderRadius: 14, padding: '12px 16px', background: '#f1f1f5', color: '#111', fontWeight: 800, cursor: 'pointer', transition: 'transform 0.2s ease, opacity 0.2s ease' },
   success: { marginTop: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(34,197,94,0.12)', color: '#86efac', fontWeight: 700, lineHeight: 1.5 },
   notice: { marginBottom: 14, padding: '12px 14px', borderRadius: 14, background: 'rgba(59,130,246,0.12)', color: '#93c5fd', fontWeight: 700, lineHeight: 1.5 },

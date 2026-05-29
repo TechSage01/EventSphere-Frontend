@@ -98,6 +98,9 @@ export default function AdminEventPage({ user=null }) {
   const [data,     setData]     = useState(null)
   const [form,     setForm]     = useState({ title:'', description:'', nominees:[] })
   const [deleting, setDeleting] = useState(null) // awardId being deleted
+  const [editingAwardId, setEditingAwardId] = useState(null)
+  const [awardEdits, setAwardEdits] = useState(null)
+  const [savingAwardEdit, setSavingAwardEdit] = useState(false)
 
   useEffect(()=>{
     async function load() {
@@ -334,18 +337,75 @@ export default function AdminEventPage({ user=null }) {
                       <div key={award.id} style={A.awardCard}>
                         {/* award header */}
                         <div style={A.awardHeader}>
-                          <div>
-                            <div style={A.awardTitle}>{award.title}</div>
-                            {award.description && <div style={A.awardDesc}>{award.description}</div>}
-                            <div style={A.awardMeta}>{totalAwardVotes} total votes · {nominees.length} nominees</div>
+                          {editingAwardId===award.id ? (
+                            <div style={{flex:1}}>
+                              <input value={awardEdits?.title||''} onChange={e=>setAwardEdits(p=>({...p,title:e.target.value}))}
+                                style={{...A.input, marginBottom:8}} placeholder="Award title" />
+                              <textarea value={awardEdits?.description||''} onChange={e=>setAwardEdits(p=>({...p,description:e.target.value}))}
+                                style={{...A.input,...A.textarea,marginBottom:8}} rows={2} placeholder="Description (optional)" />
+                              <div style={{display:'grid',gap:8}}>
+                                {(awardEdits?.nominees||[]).map((n,idx)=>(
+                                  <div key={idx} style={{display:'flex',gap:8,alignItems:'center'}}>
+                                    <input value={n.name||''} onChange={e=>setAwardEdits(p=>({...p,nominees:p.nominees.map((m,i)=>i===idx?{...m,name:e.target.value}:m)}))}
+                                      style={{...A.input,flex:1}} placeholder="Nominee name" />
+                                    <input value={n.imageUrl||''} onChange={e=>setAwardEdits(p=>({...p,nominees:p.nominees.map((m,i)=>i===idx?{...m,imageUrl:e.target.value}:m)}))}
+                                      style={{...A.input,width:180}} placeholder="Photo URL (optional)" />
+                                    <button type="button" style={A.ghostSmBtn} onClick={()=>document.getElementById(`award-file-${award.id}-${idx}`)?.click()}>Upload</button>
+                                    <input id={`award-file-${award.id}-${idx}`} type="file" accept="image/*" style={{display:'none'}} onChange={e=>{
+                                      const f = e.target.files?.[0]; if(!f||!f.type?.startsWith('image/')) return
+                                      const r = new FileReader()
+                                      r.onload = ()=> setAwardEdits(p=>({...p,nominees:p.nominees.map((m,i)=>i===idx?{...m,imageUrl:String(r.result||'')}:m)}))
+                                      r.readAsDataURL(f)
+                                    }} />
+                                    <button type="button" style={A.dangerSmBtn} onClick={()=>setAwardEdits(p=>({...p,nominees:p.nominees.filter((_,i)=>i!==idx)}))}>Remove</button>
+                                  </div>
+                                ))}
+                                <div>
+                                  <button type="button" style={A.addNomineeBtn} onClick={()=>setAwardEdits(p=>({...p,nominees:[...(p.nominees||[]),{name:'',imageUrl:''}].slice(0,6)}))}>+ Add Nominee</button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div style={A.awardTitle}>{award.title}</div>
+                              {award.description && <div style={A.awardDesc}>{award.description}</div>}
+                              <div style={A.awardMeta}>{totalAwardVotes} total votes · {nominees.length} nominees</div>
+                            </div>
+                          )}
+                          <div style={{display:'flex',alignItems:'center',gap:8}}>
+                            {editingAwardId===award.id ? (
+                              <>
+                                <button style={A.ghostSmBtn} disabled={savingAwardEdit} onClick={async ()=>{
+                                  // save
+                                  try {
+                                    setSavingAwardEdit(true); setError(''); setSuccess('')
+                                    const token = localStorage.getItem('es_token')
+                                    const res = await fetch(`${API_BASE}/awards/events/${eventId}/${award.id}`,{
+                                      method:'PATCH', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`},
+                                      body: JSON.stringify({ title: awardEdits.title, description: awardEdits.description, nominees: awardEdits.nominees })
+                                    })
+                                    const payload = await res.json()
+                                    if (!res.ok) throw new Error(payload.message||'Failed to update award')
+                                    // replace award in data
+                                    setData(prev=>{
+                                      if (!prev) return prev
+                                      const newAwards = (Array.isArray(prev.awards)?prev.awards:[]).map(a=>a.id===award.id?payload.data?.award||payload.data?.award: a)
+                                      return {...prev, awards:newAwards}
+                                    })
+                                    setSuccess('Award updated.')
+                                    setEditingAwardId(null); setAwardEdits(null)
+                                  } catch(err) { setError(err.message) }
+                                  finally { setSavingAwardEdit(false) }
+                                }}>Save</button>
+                                <button style={A.ghostSmBtn} onClick={()=>{setEditingAwardId(null); setAwardEdits(null)}}>Cancel</button>
+                              </>
+                            ) : (
+                              <>
+                                <button style={A.ghostSmBtn} onClick={()=>{ setEditingAwardId(award.id); setAwardEdits({ title: award.title||'', description: award.description||'', nominees: nominees.map(n=>({name:n.name||'', imageUrl:n.imageUrl||''})) }) }}>Edit</button>
+                                {/* delete button commented out; keep for future */}
+                              </>
+                            )}
                           </div>
-                          {/* <button
-                            style={{...A.dangerBtn, opacity:deleting===award.id?0.5:1}}
-                            disabled={saving||deleting===award.id}
-                            onClick={()=>handleDeleteAward(award.id,award.title)}
-                          >
-                            {deleting===award.id ? 'Deleting…' : '🗑 Delete Award'}
-                          </button> */}
                         </div>
 
                         {/* nominee leaderboard */}

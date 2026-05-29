@@ -7,12 +7,14 @@ export default function ThankYouPage() {
 
   const kind = searchParams.get('type') || 'ticket'
   const backUrl = searchParams.get('back') || '/events'
+  const ticketUrl = searchParams.get('ticketUrl') || ''
   const title = searchParams.get('title') || (kind === 'vote' ? 'Thank you for voting' : 'Thank you for your payment')
   const subtitle = searchParams.get('subtitle') || (kind === 'vote'
     ? 'Your vote has been recorded successfully. You can vote for a friend next.'
     : 'Your ticket is confirmed. You can reserve another one for a friend next.')
 
   const ctaLabel = useMemo(() => (kind === 'vote' ? 'Revote for a friend' : 'Pay for a friend'), [kind])
+  const hasTicketAction = kind === 'ticket' && Boolean(ticketUrl)
 
   return (
     <div style={styles.page}>
@@ -26,6 +28,11 @@ export default function ThankYouPage() {
             <button type="button" style={styles.primaryBtn} onClick={() => navigate(backUrl)}>
               {ctaLabel}
             </button>
+            {hasTicketAction && (
+              <button type="button" style={styles.ticketBtn} onClick={() => navigate(ticketUrl)}>
+                View Ticket / Download QR
+              </button>
+            )}
             <button type="button" style={styles.secondaryBtn} onClick={() => navigate('/events')}>
               Back to Events
             </button>
@@ -87,6 +94,16 @@ const styles = {
     fontWeight: 800,
     cursor: 'pointer',
     minWidth: 190,
+  },
+  ticketBtn: {
+    border: '1px solid rgba(167,139,250,0.24)',
+    borderRadius: 14,
+    padding: '12px 18px',
+    background: 'rgba(167,139,250,0.12)',
+    color: '#e9d5ff',
+    fontWeight: 800,
+    cursor: 'pointer',
+    minWidth: 220,
   },
   secondaryBtn: {
     border: '1px solid rgba(255,255,255,0.1)',

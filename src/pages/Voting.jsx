@@ -205,41 +205,45 @@ export default function VotingPage() {
     setVoteMsg(''); setError('')
     if (!form.email)     { setVoteMsg('Please enter your email first.'); return }
     if (!currentNominee) { setVoteMsg('Please select a nominee.'); return }
-    if (!paystackKey)    { setVoteMsg('Payment key is missing.'); return }
-    if (!window.PaystackPop) { setVoteMsg('Payment system loading, please try again.'); return }
+    
     setVotingId(activeKey)
+    
     try {
-      const ref=`${activeKey}-${slugify(currentNominee)}-${Date.now()}`
-      const handler=window.PaystackPop.setup({
-        key:paystackKey, email:form.email, amount:subtotal*100, currency:'NGN',
-        channels:['card','bank_transfer','ussd','bank'], ref,
-        metadata:{
-          platform:'nest',payment_type:'vote',eventId,awardId:activeKey,
-          quantity,name:form.name,email:form.email,nominee:currentNominee,
-          custom_fields:[
-            {display_name:'Platform',    variable_name:'platform',     value:'NEST'},
-            {display_name:'Payment Type',variable_name:'payment_type', value:'Vote'},
-            {display_name:'Award',       variable_name:'award_title',  value:heroAward?.title||''},
-            {display_name:'Voting For',  variable_name:'nominee',      value:currentNominee},
-            {display_name:'Votes',       variable_name:'quantity',     value:String(quantity)},
-            {display_name:'Voter',       variable_name:'voter_name',   value:form.name||form.email},
-          ],
-        },
-        callback:response=>{
-          void verifyVotePayment({
-            eventId,awardId:activeKey,voteReference:ref,
-            quantity,name:form.name,email:form.email,nominee:currentNominee,
-            setAwards,setVoteMsg,navigate,apiBase:API_BASE,
-            backUrl:`/public/events/${eventId}/voting/${activeKey}`,
-          },response)
-        },
-        onClose:()=>setVoteMsg('Payment window closed before completing.'),
+      // 1. Make an API request to your backend to initialize the payment session
+      const res = await fetch(`${API_BASE}/awards/events/${eventId}/${activeKey}/vote/initialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          nominee: currentNominee,
+          quantity: quantity
+        })
       })
-      handler.openIframe()
-    } catch(err) { setVoteMsg(err.message) }
-    finally { setVotingId('') }
-  }
 
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to initialize payment tracking session')
+      }
+
+      // 2. Extract the safe authorization URL provided by Paystack from your backend
+      if (data.data?.authUrl) {
+        setVoteMsg('Redirecting to secure Paystack window...')
+        
+        // 3. This physically routes the tab to checkout.paystack.com
+        window.location.href = data.data.authUrl
+      } else {
+        throw new Error('No checkout URL returned from server configurations.')
+      }
+
+    } catch(err) { 
+      setVoteMsg(err.message) 
+    } finally { 
+      setVotingId('') 
+    }
+  }
+  
   if (loading) return <Shell msg="Loading voting page…"/>
   if (error&&!event) return <Shell msg={error} label="Back" onAction={()=>navigate('/events')}/>
   if (!event) return <Shell msg="Event not found" label="Back" onAction={()=>navigate('/events')}/>
