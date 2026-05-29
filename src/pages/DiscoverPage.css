@@ -402,6 +402,18 @@ input  { font-family: inherit; }
   pointer-events: none;
 }
 
+/* cover image block shown at the top of event cards */
+.dp-card-cover {
+  width: 100%;
+  height: 160px;
+  border-radius: 12px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  margin-bottom: 14px;
+  box-shadow: inset 0 0 30px rgba(0,0,0,0.45);
+}
+
 .dp-card-top {
   display: flex;
   align-items: flex-start;

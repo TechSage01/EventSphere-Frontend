@@ -39,6 +39,16 @@ export default function CreateEventPage() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  // close category menu on outside click
+  useEffect(() => {
+    function onDocClick(e) {
+      if (!categoryRef.current) return
+      if (!categoryRef.current.contains(e.target)) setCategoryOpen(false)
+    }
+    document.addEventListener('click', onDocClick)
+    return () => document.removeEventListener('click', onDocClick)
+  }, [])
+
   // Order fixed: Narrowest conditions must be checked first
   const responsive = viewportWidth <= 480 ? mobileStyles : viewportWidth <= 768 ? tabletStyles : null
   const isMiniMobile = viewportWidth <= 360
@@ -66,6 +76,9 @@ export default function CreateEventPage() {
   const [coverFile,   setCoverFile]   = useState(null)
   const [coverUrl,     setCoverUrl]    = useState(null)
   const [coverImageData, setCoverImageData] = useState('')
+  const [category, setCategory] = useState('Featured')
+  const [categoryOpen, setCategoryOpen] = useState(false)
+  const categoryRef = useRef()
   const fileRef = useRef()
 
   const theme = THEMES[themeIdx]
@@ -130,7 +143,8 @@ export default function CreateEventPage() {
       const body = {
         name, title: name, startDate, startTime, endDate, endTime,
         location, description, isPublic, ticketPrice,
-        requireApproval, capacity, theme: theme.id,
+        requireApproval, capacity, // use selected category for discover filters
+        theme: category || theme.id,
         ticketPrices: (() => {
           const tp = {}
           const vip = parseFloat(String(ticketVipPrice || '').trim())
@@ -273,6 +287,34 @@ export default function CreateEventPage() {
               <span style={{ flex: 1, textAlign: 'left' }}>{isPublic ? 'Public' : 'Private'}</span>
               <span style={{ opacity:.5 }}>▾</span>
             </button>
+            <div ref={categoryRef} style={{ position: 'relative', marginLeft: 4 }}>
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={categoryOpen}
+                onClick={() => setCategoryOpen(v => !v)}
+                style={S.categoryBtn}
+              >
+                <span style={{ fontWeight: 700 }}>{category}</span>
+                <span style={{ opacity: 0.6, marginLeft: 8 }}>▾</span>
+              </button>
+
+              {categoryOpen && (
+                <div role="menu" style={S.categoryMenu}>
+                  {['Featured', 'Music', 'Business', 'Community', 'Workshops', 'Nightlife'].map(opt => (
+                    <button
+                      key={opt}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { setCategory(opt); setCategoryOpen(false) }}
+                      style={{ ...(S.categoryOption || {}), ...(category === opt ? S.categoryOptionActive : {}) }}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* event name */}
@@ -592,6 +634,24 @@ const S = {
     fontFamily:"'DM Sans',system-ui,sans-serif",
     transition: 'border-color 0.8s ease',
     boxSizing: 'border-box'
+  },
+  categoryBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: 8,
+    padding: '8px 12px', borderRadius: 10,
+    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+    color: '#e8e8ec', cursor: 'pointer', fontWeight: 700,
+  },
+  categoryMenu: {
+    position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+    background: 'rgba(10,10,10,0.98)', border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 10, padding: 6, minWidth: 160, boxShadow: '0 8px 32px rgba(0,0,0,0.6)', zIndex: 40
+  },
+  categoryOption: {
+    display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
+    background: 'transparent', border: 'none', color: '#c0d8d8', cursor: 'pointer', borderRadius: 6,
+  },
+  categoryOptionActive: {
+    background: 'rgba(232,200,122,0.08)', color: '#f5e9c8', fontWeight: 800
   },
 
   nameInput: {

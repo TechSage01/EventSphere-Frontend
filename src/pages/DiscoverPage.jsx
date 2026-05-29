@@ -1,83 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiRequest } from '../services/api.js'
 import './DiscoverPage.css'
 
 const filters = ['All', 'Featured', 'Music', 'Business', 'Community', 'Workshops', 'Nightlife']
-
-const events = [
-  {
-    title: 'Moonlight Mixer',
-    category: 'Business',
-    date: 'Fri, Jun 6',
-    time: '6:30 PM',
-    city: 'Lagos',
-    venue: 'The Pier House',
-    price: 'Free',
-    going: '182 going',
-    accent: '#a78bfa',
-    summary: 'Founders, operators, and designers meet over drinks and sharp ideas.',
-  },
-  {
-    title: 'After Hours Soundcheck',
-    category: 'Music',
-    date: 'Sat, Jun 7',
-    time: '8:00 PM',
-    city: 'Abuja',
-    venue: 'Warehouse 9',
-    price: 'From ₦15,000',
-    going: '341 going',
-    accent: '#38bdf8',
-    summary: 'A late-night live set with low lights, warm bass, and strong energy.',
-  },
-  {
-    title: 'Creative People Breakfast',
-    category: 'Community',
-    date: 'Sun, Jun 8',
-    time: '9:00 AM',
-    city: 'Port Harcourt',
-    venue: 'Palm Studio',
-    price: 'Free',
-    going: '96 going',
-    accent: '#4ade80',
-    summary: 'A calm morning for makers, freelancers, and small teams.',
-  },
-  {
-    title: 'Brand Sprint Lab',
-    category: 'Workshops',
-    date: 'Tue, Jun 10',
-    time: '11:00 AM',
-    city: 'Lagos',
-    venue: 'North Loop',
-    price: '₦20,000',
-    going: '74 going',
-    accent: '#fb923c',
-    summary: 'A practical session on positioning, landing pages, and event growth.',
-  },
-  {
-    title: 'Rooftop Selects',
-    category: 'Nightlife',
-    date: 'Fri, Jun 13',
-    time: '7:30 PM',
-    city: 'Lagos',
-    venue: 'Skyline Deck',
-    price: 'From ₦25,000',
-    going: '255 going',
-    accent: '#fb7185',
-    summary: 'Cocktails, skyline views, and a crowd that arrives dressed to be seen.',
-  },
-  {
-    title: 'Product Demo Night',
-    category: 'Featured',
-    date: 'Wed, Jun 18',
-    time: '5:45 PM',
-    city: 'Abuja',
-    venue: 'Civic Hall',
-    price: 'Free',
-    going: '207 going',
-    accent: '#fbbf24',
-    summary: 'Startups present in a polished room built for attention and momentum.',
-  },
-]
 
 const highlights = [
   { label: 'Cities this week', value: '12' },
@@ -97,11 +23,44 @@ export default function DiscoverPage() {
   const navigate = useNavigate()
   const [activeFilter, setActiveFilter] = useState('All')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [events, setEvents] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let alive = true
+
+    async function loadPublicEvents() {
+      setLoading(true)
+      setError('')
+
+      try {
+        const payload = await apiRequest('/events/public')
+        if (!alive) return
+        const evs = Array.isArray(payload.data?.events) ? payload.data.events : []
+        setEvents(evs)
+        // debug: show how many public events and whether they have cover images
+        // eslint-disable-next-line no-console
+        console.debug('Discover: loaded public events', evs.length, evs.map(e => ({ id: e.id, hasCover: Boolean(e.coverImage) })))
+      } catch (err) {
+        if (!alive) return
+        setError(err.message || 'Failed to load public events')
+      } finally {
+        if (alive) setLoading(false)
+      }
+    }
+
+    loadPublicEvents()
+    return () => { alive = false }
+  }, [])
 
   const visibleEvents = useMemo(() => {
     if (activeFilter === 'All') return events
-    return events.filter(e => e.category === activeFilter)
-  }, [activeFilter])
+    return events.filter(e => {
+      const category = String(e.theme || e.category || '').toLowerCase()
+      return category === activeFilter.toLowerCase()
+    })
+  }, [activeFilter, events])
 
   return (
     <main className="dp-page">
@@ -203,40 +162,59 @@ export default function DiscoverPage() {
 
         {/* Event cards */}
         <section className="dp-event-grid" aria-label="Event listings">
-          {visibleEvents.length === 0 && (
+          {loading && (
+            <p style={{ color: 'var(--text-3)', padding: '32px 0', gridColumn: '1/-1' }}>
+              Loading public events...
+            </p>
+          )}
+          {!loading && error && (
+            <p style={{ color: 'var(--text-3)', padding: '32px 0', gridColumn: '1/-1' }}>
+              {error}
+            </p>
+          )}
+          {!loading && !error && visibleEvents.length === 0 && (
             <p style={{ color: 'var(--text-3)', padding: '32px 0', gridColumn: '1/-1' }}>
               No events in this category yet.
             </p>
           )}
           {visibleEvents.map(event => (
-            <article key={event.title} className="dp-event-card" onClick={() => navigate('/events/new')}>
-              <div className="dp-card-glow" style={{ background: event.accent }} />
+            <article key={event.id} className="dp-event-card" onClick={() => navigate(`/public/events/${event.id}`)}>
+              {event.coverImage && (
+                <div
+                  className="dp-card-cover"
+                  style={{ backgroundImage: `url(${event.coverImage})`, backgroundPosition: 'center', backgroundSize: 'cover' }}
+                />
+              )}
+              <div
+                className="dp-card-glow"
+                style={{}}
+              />
 
               <div className="dp-card-top">
                 <div>
-                  <div className="dp-card-date">{event.date}</div>
-                  <div className="dp-card-time">{event.time}</div>
+                  <div className="dp-card-date">{formatEventDate(event.startDate)}</div>
+                  <div className="dp-card-time">{formatEventTime(event.startTime, event.endTime)}</div>
                 </div>
-                <span className="dp-card-tag">{event.category}</span>
+                <span className="dp-card-tag">{String(event.theme || 'Featured')}</span>
               </div>
 
               <h3 className="dp-card-title">{event.title}</h3>
-              <p className="dp-card-summary">{event.summary}</p>
+              <p className="dp-card-summary">{event.description || 'Public event'}</p>
 
               <div className="dp-card-meta">
-                <span>{event.city}</span>
-                <span>{event.venue}</span>
-                <span>{event.price}</span>
+                <span>{event.location || 'Location not set'}</span>
+                <span>{event.hostName || event.hostEmail || 'Creator'}</span>
+                <span>{event.ticketPrice || 'Free'}</span>
               </div>
 
               <div className="dp-card-footer">
-                <span className="dp-card-going">{event.going}</span>
+                <span className="dp-card-going">{event.isPublic ? 'Public' : 'Private'}</span>
                 <button
                   type="button"
                   className="dp-card-btn"
-                  onClick={e => { e.stopPropagation(); navigate('/events/new') }}
+                  onClick={e => { e.stopPropagation(); navigate(`/public/events/${event.id}`) }}
                 >
-                  Use this vibe
+                  View event
                 </button>
               </div>
             </article>
@@ -275,4 +253,17 @@ export default function DiscoverPage() {
       </div>
     </main>
   )
+}
+
+function formatEventDate(dateString) {
+  if (!dateString) return 'Date not set'
+  const eventDate = new Date(dateString)
+  if (Number.isNaN(eventDate.getTime())) return dateString
+  return new Intl.DateTimeFormat('en-NG', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  }).format(eventDate)
+}
+
+function formatEventTime(startTime, endTime) {
+  return [startTime, endTime].filter(Boolean).join(' - ') || 'Time not set'
 }

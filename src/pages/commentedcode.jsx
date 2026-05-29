@@ -17,7 +17,8 @@ export default function EventOverviewPage({ user = null }) {
   const { eventId } = useParams()
   const navigate    = useNavigate()
   const API_BASE = getApiBaseUrl()
-  const { logout } = useAuth()
+  const { logout, user: authUser } = useAuth()
+  const currentUser = user || authUser
 
   const [event,           setEvent]           = useState(null)
   const [loading,         setLoading]         = useState(true)
@@ -34,6 +35,8 @@ export default function EventOverviewPage({ user = null }) {
   const [toast,           setToast]           = useState('')
   const [loggingOut,      setLoggingOut]      = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [rsvpForm, setRsvpForm] = useState({ name: '', email: '', note: '' })
+  const [submittingRsvp, setSubmittingRsvp] = useState(false)
 
   // ── Window Width Hook for Sleek Responsiveness ──
   const [width, setWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
@@ -91,6 +94,14 @@ export default function EventOverviewPage({ user = null }) {
       ticketTablePrice: event?.ticketPrices?.table ?? '',
     })
   }, [event])
+
+  useEffect(() => {
+    setRsvpForm(prev => ({
+      ...prev,
+      name: currentUser?.name || prev.name,
+      email: currentUser?.email || prev.email,
+    }))
+  }, [currentUser?.email, currentUser?.name])
 
   function formatPriceInput(val) {
     const cleaned = String(val || '').replace(/[^0-9.]/g, '').trim()
@@ -175,9 +186,7 @@ export default function EventOverviewPage({ user = null }) {
       })
       const payload = await res.json()
       if (!res.ok) throw new Error(payload.message)
-      setEvent(payload.data?.event); setHostForm({ name:'', email:'', role:'Co-host' })
-      const sent = Boolean(payload.data?.emailSent)
-      showToast(sent ? 'Host added — invitation email sent.' : 'Host added — invitation failed to send.')
+      setEvent(payload.data?.event); setHostForm({ name:'', email:'', role:'Co-host' }); showToast('Host added.')
     } catch (err) { setError(err.message) }
     finally       { setAddingHost(false) }
   }
@@ -235,17 +244,30 @@ export default function EventOverviewPage({ user = null }) {
     window.open(targetUrl, '_blank', 'noopener,noreferrer')
   }
 
-  async function handleOneClickRsvp() {
-    if (!user?.name || !user?.email) {
-      showToast('Your profile name and email are needed to RSVP.')
+  const attendeeEmail = String(rsvpForm.email || currentUser?.email || '').trim().toLowerCase()
+  const attendeeName = String(rsvpForm.name || currentUser?.name || '').trim()
+  const alreadyRsvped = Array.isArray(event?.rsvps)
+    ? event.rsvps.some(rsvp => String(rsvp.email || '').trim().toLowerCase() === attendeeEmail)
+    : false
+
+  async function handleSubmitRsvp() {
+    if (!attendeeName || !attendeeEmail) {
+      showToast('Your name and email are needed to register.')
       return
     }
+
+    if (alreadyRsvped) {
+      showToast('You have already registered for this event.')
+      return
+    }
+
+    setSubmittingRsvp(true)
 
     try {
       const res = await fetch(`${API_BASE}/events/public/${eventId}/rsvp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: user.name, email: user.email, note: '' }),
+        body: JSON.stringify({ name: attendeeName, email: attendeeEmail, note: String(rsvpForm.note || '').trim() }),
       })
       const payload = await res.json()
 
@@ -258,9 +280,12 @@ export default function EventOverviewPage({ user = null }) {
       }
 
       setEvent(payload.data?.event)
+      setRsvpForm(prev => ({ ...prev, note: '' }))
       showToast('RSVP confirmed.')
     } catch (err) {
       showToast(err.message)
+    } finally {
+      setSubmittingRsvp(false)
     }
   }
 
@@ -412,16 +437,58 @@ export default function EventOverviewPage({ user = null }) {
               <div style={s.regCard}>
                 <div style={s.regLabel}>Registration</div>
                 <p style={s.regCopy}>
-                  Welcome, <strong>{user?.name || event.hostName || 'Creator'}</strong>! To join the event, please register below.
+                  Welcome, <strong>{currentUser?.name || event.hostName || 'Creator'}</strong>! {event.requireApproval ? 'Request access using the form below.' : 'Register below to join the event.'}
                 </p>
                 <div style={s.regHostRow}>
-                  <div style={s.regHostAvatar}>{initials(event.hostName || user?.name)}</div>
+                  <div style={s.regHostAvatar}>{initials(event.hostName || currentUser?.name)}</div>
                   <div>
-                    <div style={s.regHostName}>{event.hostName || user?.name || 'Creator'}</div>
-                    <div style={s.regHostEmail}>{event.hostEmail || user?.email || ''}</div>
+                    <div style={s.regHostName}>{event.hostName || currentUser?.name || 'Creator'}</div>
+                    <div style={s.regHostEmail}>{event.hostEmail || currentUser?.email || ''}</div>
                   </div>
                 </div>
-                <button type="button" style={s.rsvpBtn} onClick={handleOneClickRsvp}>One-Click RSVP</button>
+                <div style={s.rsvpForm}>
+                  <label style={s.rsvpField}>
+                    <span style={s.rsvpLabel}>Name</span>
+                    <input
+                      type="text"
+                      value={rsvpForm.name}
+                      onChange={e => setRsvpForm(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Your full name"
+                      style={s.rsvpInput}
+                    />
+                  </label>
+                  <label style={s.rsvpField}>
+                    <span style={s.rsvpLabel}>Email</span>
+                    <input
+                      type="email"
+                      value={rsvpForm.email}
+                      onChange={e => setRsvpForm(prev => ({ ...prev, email: e.target.value }))}
+                      placeholder="you@example.com"
+                      style={s.rsvpInput}
+                    />
+                  </label>
+                  <label style={s.rsvpField}>
+                    <span style={s.rsvpLabel}>{event.requireApproval ? 'Why do you want to attend?' : 'Note (optional)'}</span>
+                    <textarea
+                      value={rsvpForm.note}
+                      onChange={e => setRsvpForm(prev => ({ ...prev, note: e.target.value }))}
+                      placeholder={event.requireApproval ? 'Tell the host a bit about yourself' : 'Add a short note'}
+                      rows={3}
+                      style={s.rsvpTextarea}
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  style={s.rsvpBtn}
+                  onClick={handleSubmitRsvp}
+                  disabled={submittingRsvp || alreadyRsvped}
+                >
+                  {alreadyRsvped ? 'Already Registered' : submittingRsvp ? 'Submitting…' : event.requireApproval ? 'Request Approval' : 'One-Click RSVP'}
+                </button>
+                {event.requireApproval && (
+                  <div style={s.rsvpHint}>Your request will be sent to the host for approval.</div>
+                )}
               </div>
 
               {/* share bar */}
@@ -887,7 +954,13 @@ const s = {
   regHostAvatar:{ width:40, height:40, borderRadius:999, background:'rgba(255,255,255,0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14 },
   regHostName: { fontSize:14, fontWeight:700, color:'#f0f0f4' },
   regHostEmail:{ fontSize:12.5, color:'#7a7a8a' },
+  rsvpForm: { display:'grid', gap:12, marginBottom:14 },
+  rsvpField: { display:'grid', gap:6 },
+  rsvpLabel: { fontSize:12, fontWeight:700, color:'#9a9aaa' },
+  rsvpInput: { width:'100%', padding:'12px 14px', borderRadius:12, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.04)', color:'#f0f0f4', fontFamily:"'DM Sans',system-ui,sans-serif", outline:'none' },
+  rsvpTextarea: { width:'100%', padding:'12px 14px', borderRadius:12, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.04)', color:'#f0f0f4', fontFamily:"'DM Sans',system-ui,sans-serif", outline:'none', resize:'vertical', minHeight: 88 },
   rsvpBtn:     { width:'100%', padding:'12px', borderRadius:12, background:'#f0f0f4', color:'#111114', border:'none', fontWeight:700, fontSize:14, cursor:'pointer', transition:'opacity .15s' },
+  rsvpHint: { marginTop:10, fontSize:12.5, color:'#9a9aaa', lineHeight:1.45 },
 
   /* share bar */
   shareBar:    { height:48, padding:'0 16px', display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(0,0,0,0.15)' },

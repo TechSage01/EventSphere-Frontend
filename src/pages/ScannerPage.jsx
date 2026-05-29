@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-
-const API_BASE = ''
+import { apiRequest } from '../services/api.js'
 
 export default function ScannerPage({ user }) {
   const { eventId } = useParams()
   const videoRef = useRef(null)
+  const lastScanRef = useRef('')
+  const verifyingRef = useRef(false)
   const [status, setStatus] = useState('')
   const [scanning, setScanning] = useState(false)
   const [stats, setStats] = useState(null)
@@ -18,11 +19,8 @@ export default function ScannerPage({ user }) {
 
   async function fetchStats() {
     try {
-      const token = localStorage.getItem('es_token')
-      const res = await fetch(`/api/tickets/events/${eventId}`, { headers: { Authorization: `Bearer ${token}` } })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || 'Failed to load stats')
-      setStats(data)
+      const payload = await apiRequest(`/tickets/events/${eventId}`)
+      setStats(payload.data)
     } catch (err) {
       console.error(err)
     }
@@ -83,7 +81,9 @@ export default function ScannerPage({ user }) {
 
   async function handleScanned(raw) {
     // avoid double handling
-    if (!raw) return
+    if (!raw || verifyingRef.current) return
+    if (raw === lastScanRef.current) return
+    lastScanRef.current = raw
     setStatus(`Scanned: ${raw}`)
     const ticketId = extractTicketId(raw)
     if (!ticketId) {
@@ -106,48 +106,191 @@ export default function ScannerPage({ user }) {
   }
 
   async function verifyTicket(ticketId) {
+    if (!ticketId || verifyingRef.current) return
+    verifyingRef.current = true
     try {
       setStatus('Verifying...')
-      const token = localStorage.getItem('es_token')
-      const res = await fetch(`/api/tickets/${ticketId}/verify`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || 'Verification failed')
-      setStatus(`Check-in successful: ${data.message || 'OK'}`)
+      const payload = await apiRequest(`/tickets/${ticketId}/verify`, { method: 'POST' })
+      setStatus(`Check-in successful: ${payload.message || 'OK'}`)
       fetchStats()
     } catch (err) {
       console.error(err)
       setStatus(err.message || 'Verification error')
+    } finally {
+      verifyingRef.current = false
     }
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Event Check-in</h2>
-      {stats && stats.event && (
-        <div style={{ marginBottom: 12 }}>
-          <strong>{stats.event.title}</strong>
-          <div>Paid: {stats.paidCount} — Checked-in: {stats.scannedCount} — To enter: {stats.unscannedCount}</div>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', borderRadius: 8, background: '#000' }} />
-          <div style={{ marginTop: 8 }}>{scanning ? 'Scanning...' : 'Camera ready'}</div>
-        </div>
-        <div style={{ width: 320 }}>
-          <div style={{ marginBottom: 8 }}><strong>Status</strong></div>
-          <div style={{ minHeight: 80, padding: 8, background: '#0f0f12', color: '#ddd', borderRadius: 8 }}>{status || 'Idle'}</div>
-
-          <div style={{ marginTop: 12 }}>
-            <div style={{ marginBottom: 6 }}><strong>Manual check-in</strong></div>
-            <input value={manual} onChange={e => setManual(e.target.value)} placeholder="Paste ticket URL or id" style={{ width: '100%', padding: 8, borderRadius: 6 }} />
-            <button onClick={() => verifyTicket(manual)} style={{ marginTop: 8, width: '100%', padding: 10, borderRadius: 8 }}>Verify</button>
+    <div style={styles.page}>
+      <div style={styles.shell}>
+        <header style={styles.header}>
+          <div>
+            <h2 style={styles.title}>Event Check-in</h2>
+            <p style={styles.subTitle}>Scan QR codes or paste a ticket ID to check guests in at the door.</p>
           </div>
+          <div style={styles.cameraState}>{scanning ? 'Scanning active' : 'Camera ready'}</div>
+        </header>
+
+        {stats && stats.event && (
+          <section style={styles.statsBar}>
+            <div style={styles.statsTitle}>{stats.event.title}</div>
+            <div style={styles.statsGrid}>
+              <div style={styles.statCard}><span>Paid</span><strong>{stats.paidCount}</strong></div>
+              <div style={styles.statCard}><span>Checked-in</span><strong>{stats.scannedCount}</strong></div>
+              <div style={styles.statCard}><span>To enter</span><strong>{stats.unscannedCount}</strong></div>
+            </div>
+          </section>
+        )}
+
+        <div style={styles.layout}>
+          <section style={styles.cameraPanel}>
+            <video ref={videoRef} autoPlay playsInline muted style={styles.video} />
+            <div style={styles.cameraHint}>Align the QR code inside the frame.</div>
+          </section>
+
+          <aside style={styles.sidePanel}>
+            <div>
+              <div style={styles.panelLabel}>Status</div>
+              <div style={styles.statusBox}>{status || 'Idle'}</div>
+            </div>
+
+            <div style={styles.manualBox}>
+              <div style={styles.panelLabel}>Manual check-in</div>
+              <input
+                value={manual}
+                onChange={e => setManual(e.target.value)}
+                placeholder="Paste ticket URL or id"
+                style={styles.manualInput}
+              />
+              <button onClick={() => verifyTicket(manual)} style={styles.verifyBtn}>
+                Verify ticket
+              </button>
+            </div>
+          </aside>
         </div>
       </div>
     </div>
   )
+}
+
+const styles = {
+  page: {
+    minHeight: '100vh',
+    padding: '24px',
+    background: 'radial-gradient(circle at top, rgba(167,139,250,0.12), transparent 30%), #0b0b10',
+    color: '#f3f4f6',
+    fontFamily: "'DM Sans', system-ui, sans-serif",
+  },
+  shell: {
+    maxWidth: 1400,
+    margin: '0 auto',
+    display: 'grid',
+    gap: 20,
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 16,
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+  },
+  title: { margin: 0, fontSize: 'clamp(28px, 4vw, 48px)', letterSpacing: '-0.04em' },
+  subTitle: { margin: '8px 0 0', color: '#a1a1aa', fontSize: 14 },
+  cameraState: {
+    padding: '10px 14px',
+    borderRadius: 999,
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    color: '#e5e7eb',
+    fontWeight: 700,
+  },
+  statsBar: {
+    padding: 18,
+    borderRadius: 20,
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+  },
+  statsTitle: { fontSize: 18, fontWeight: 800, marginBottom: 12 },
+  statsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 12,
+  },
+  statCard: {
+    padding: 14,
+    borderRadius: 16,
+    background: 'rgba(0,0,0,0.24)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    display: 'grid',
+    gap: 6,
+  },
+  layout: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.8fr) minmax(320px, 0.8fr)',
+    gap: 20,
+    alignItems: 'start',
+  },
+  cameraPanel: {
+    padding: 16,
+    borderRadius: 24,
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+  },
+  video: {
+    width: '100%',
+    aspectRatio: '16 / 10',
+    minHeight: 560,
+    borderRadius: 18,
+    background: '#000',
+    objectFit: 'cover',
+  },
+  cameraHint: { marginTop: 12, color: '#a1a1aa', fontSize: 14 },
+  sidePanel: {
+    display: 'grid',
+    gap: 16,
+    padding: 16,
+    borderRadius: 24,
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+  },
+  panelLabel: { fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 8 },
+  statusBox: {
+    minHeight: 120,
+    padding: 16,
+    borderRadius: 18,
+    background: 'rgba(0,0,0,0.3)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    color: '#f3f4f6',
+    fontSize: 15,
+    lineHeight: 1.5,
+  },
+  manualBox: {
+    display: 'grid',
+    gap: 10,
+    padding: 16,
+    borderRadius: 18,
+    background: 'rgba(0,0,0,0.24)',
+    border: '1px solid rgba(255,255,255,0.06)',
+  },
+  manualInput: {
+    width: '100%',
+    padding: '12px 14px',
+    borderRadius: 12,
+    border: '1px solid rgba(255,255,255,0.08)',
+    background: 'rgba(255,255,255,0.04)',
+    color: '#f3f4f6',
+    fontFamily: "'DM Sans', system-ui, sans-serif",
+    outline: 'none',
+  },
+  verifyBtn: {
+    width: '100%',
+    padding: '12px 14px',
+    borderRadius: 12,
+    border: 'none',
+    background: '#f3f4f6',
+    color: '#0b0b10',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
 }

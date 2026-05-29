@@ -181,6 +181,9 @@ export default function AdminEventPage({ user=null }) {
 
   const currentNominees = form.nominees.length>0 ? form.nominees : [{name:'',imageUrl:''}]
 
+  const isOrganizer = String(event.organizerId) === String(user?.userId)
+  const isCoHost = Boolean(user?.email && Array.isArray(event.coHosts) && event.coHosts.some(h=>String(h.email||'').toLowerCase() === String(user.email||'').toLowerCase()))
+
   return (
     <div style={A.page}>
 
@@ -188,7 +191,12 @@ export default function AdminEventPage({ user=null }) {
       <header style={A.topbar}>
         <div>
           <div style={A.kicker}>Admin Dashboard</div>
-          <h1 style={A.pageTitle}>{event.title}</h1>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <h1 style={A.pageTitle}>{event.title}</h1>
+            {isCoHost && !isOrganizer && (
+              <span style={A.coHostBadge}>Co-host</span>
+            )}
+          </div>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           <button style={A.ghostBtn} onClick={()=>navigate(`/events/${eventId}`)}>← Back to Event</button>
@@ -475,6 +483,7 @@ const A = {
   panelHead: { display:'flex', alignItems:'center', gap:8, fontSize:16, fontWeight:800, marginBottom:16, color:'#f0f0f4' },
   panelIcon: { fontSize:18 },
   countBadge:{ marginLeft:'auto', fontSize:12, fontWeight:700, background:'rgba(255,255,255,0.08)', borderRadius:999, padding:'2px 10px', color:'#9ca3af' },
+  coHostBadge: { marginLeft:8, fontSize:12, fontWeight:800, background:'#fef3c7', color:'#92400e', borderRadius:8, padding:'6px 10px' },
 
   input:     { width:'100%', boxSizing:'border-box', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, color:'#f0f0f4', padding:'11px 14px', fontFamily:"'DM Sans',system-ui,sans-serif", fontSize:14, outline:'none' },
   textarea:  { resize:'vertical' },
