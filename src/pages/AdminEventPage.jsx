@@ -101,6 +101,10 @@ export default function AdminEventPage({ user=null }) {
   const [editingAwardId, setEditingAwardId] = useState(null)
   const [awardEdits, setAwardEdits] = useState(null)
   const [savingAwardEdit, setSavingAwardEdit] = useState(false)
+  const [editingNominee, setEditingNominee] = useState(null)
+  const [nomineeEdits, setNomineeEdits] = useState(null)
+  const [savingNomineeEdit, setSavingNomineeEdit] = useState(false)
+  const [nomineeError, setNomineeError] = useState('')
 
   useEffect(()=>{
     async function load() {
@@ -170,6 +174,68 @@ export default function AdminEventPage({ user=null }) {
       setForm(prev=>({...prev,nominees:prev.nominees.map((n,i)=>i===index?{...n,imageUrl:String(reader.result||'')}:n)}))
     }
     reader.readAsDataURL(file)
+  }
+
+  function openNomineeEdit(nominee) {
+    setNomineeError('')
+    setEditingNominee(nominee)
+    setNomineeEdits({
+      name: nominee?.name || '',
+      description: nominee?.description || '',
+      imageUrl: nominee?.imageUrl || '',
+      category: nominee?.category || '',
+      voteMetadataText: nominee?.voteMetadata ? JSON.stringify(nominee.voteMetadata, null, 2) : '',
+    })
+  }
+
+  async function handleSaveNomineeEdit() {
+    if (!editingNominee || !nomineeEdits) return
+    if (!window.confirm('Update this nominee?')) return
+    setSavingNomineeEdit(true)
+    setNomineeError('')
+    try {
+      let voteMetadata = undefined
+      if (String(nomineeEdits.voteMetadataText || '').trim()) {
+        try {
+          voteMetadata = JSON.parse(nomineeEdits.voteMetadataText)
+        } catch {
+          setNomineeError('Vote metadata must be valid JSON')
+          return
+        }
+      }
+
+      const token = localStorage.getItem('es_token')
+      const res = await fetch(`${API_BASE}/nominees/${editingNominee.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: nomineeEdits.name,
+          description: nomineeEdits.description,
+          imageUrl: nomineeEdits.imageUrl,
+          category: nomineeEdits.category,
+          voteMetadata,
+        }),
+      })
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload.message || 'Failed to update nominee')
+
+      const updatedNominee = payload.data?.nominee || payload.data || payload
+      setData(prev => {
+        if (!prev) return prev
+        const nextNominees = Array.isArray(prev.nominees)
+          ? prev.nominees.map(n => n.id === updatedNominee.id ? updatedNominee : n)
+          : prev.nominees
+        return { ...prev, nominees: nextNominees }
+      })
+
+      setSuccess('Updated successfully')
+      setEditingNominee(null)
+      setNomineeEdits(null)
+    } catch (err) {
+      setNomineeError(err.message)
+    } finally {
+      setSavingNomineeEdit(false)
+    }
   }
 
   if (loading) return <Shell message="Loading admin dashboard…"/>
@@ -343,27 +409,6 @@ export default function AdminEventPage({ user=null }) {
                                 style={{...A.input, marginBottom:8}} placeholder="Award title" />
                               <textarea value={awardEdits?.description||''} onChange={e=>setAwardEdits(p=>({...p,description:e.target.value}))}
                                 style={{...A.input,...A.textarea,marginBottom:8}} rows={2} placeholder="Description (optional)" />
-                              <div style={{display:'grid',gap:8}}>
-                                {(awardEdits?.nominees||[]).map((n,idx)=>(
-                                  <div key={idx} style={{display:'flex',gap:8,alignItems:'center'}}>
-                                    <input value={n.name||''} onChange={e=>setAwardEdits(p=>({...p,nominees:p.nominees.map((m,i)=>i===idx?{...m,name:e.target.value}:m)}))}
-                                      style={{...A.input,flex:1}} placeholder="Nominee name" />
-                                    <input value={n.imageUrl||''} onChange={e=>setAwardEdits(p=>({...p,nominees:p.nominees.map((m,i)=>i===idx?{...m,imageUrl:e.target.value}:m)}))}
-                                      style={{...A.input,width:180}} placeholder="Photo URL (optional)" />
-                                    <button type="button" style={A.ghostSmBtn} onClick={()=>document.getElementById(`award-file-${award.id}-${idx}`)?.click()}>Upload</button>
-                                    <input id={`award-file-${award.id}-${idx}`} type="file" accept="image/*" style={{display:'none'}} onChange={e=>{
-                                      const f = e.target.files?.[0]; if(!f||!f.type?.startsWith('image/')) return
-                                      const r = new FileReader()
-                                      r.onload = ()=> setAwardEdits(p=>({...p,nominees:p.nominees.map((m,i)=>i===idx?{...m,imageUrl:String(r.result||'')}:m)}))
-                                      r.readAsDataURL(f)
-                                    }} />
-                                    <button type="button" style={A.dangerSmBtn} onClick={()=>setAwardEdits(p=>({...p,nominees:p.nominees.filter((_,i)=>i!==idx)}))}>Remove</button>
-                                  </div>
-                                ))}
-                                <div>
-                                  <button type="button" style={A.addNomineeBtn} onClick={()=>setAwardEdits(p=>({...p,nominees:[...(p.nominees||[]),{name:'',imageUrl:''}].slice(0,6)}))}>+ Add Nominee</button>
-                                </div>
-                              </div>
                             </div>
                           ) : (
                             <div>

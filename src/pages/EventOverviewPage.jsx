@@ -58,6 +58,7 @@ export default function EventOverviewPage({ user = null }) {
   const isTablet = width <= 880
   const isMobile = width <= 600
   const isSmallMobile = width <= 400
+  const isOwner = Boolean(event && String(event.createdByAdminId || event.organizerId || '') === String(user?.userId || ''))
 
   function showToast(msg) {
     setToast(msg)
@@ -107,6 +108,10 @@ export default function EventOverviewPage({ user = null }) {
   /* ── actions ── */
   async function handleSaveEvent() {
     if (!editForm) return
+    if (!isOwner) {
+      setError('You are not authorized to edit this event')
+      return
+    }
     setSavingEvent(true)
     try {
       const token = localStorage.getItem('es_token')
@@ -132,6 +137,10 @@ export default function EventOverviewPage({ user = null }) {
   }
 
   async function handleToggleVisibility() {
+    if (!isOwner) {
+      setError('You are not authorized to edit this event')
+      return
+    }
     setSavingVis(true)
     try {
       const token = localStorage.getItem('es_token')
@@ -333,7 +342,9 @@ export default function EventOverviewPage({ user = null }) {
             </div>
           </div>
           <div style={{...s.heroActions, marginTop: isMobile ? 8 : 0, width: isMobile ? '100%' : 'auto'}}>
-            <Btn onClick={() => setEditing(v=>!v)} style={{flex: isMobile ? 1 : 'unset'}}>{editing ? 'Close' : 'Edit Event'}</Btn>
+            <Btn onClick={() => setEditing(v=>!v)} disabled={!isOwner} style={{flex: isMobile ? 1 : 'unset'}}>
+              {editing ? 'Close' : 'Edit Event'}
+            </Btn>
             <Btn ghost onClick={() => navigate(`/events/${event.id}/admin`)} style={{flex: isMobile ? 1 : 'unset'}}>Admin</Btn>
           </div>
         </div>
@@ -458,7 +469,7 @@ export default function EventOverviewPage({ user = null }) {
                 ))}
               </div>
               <div style={{...s.bottomActions, justifyContent: isMobile ? 'stretch' : 'flex-end'}}>
-                <button style={{...s.bottomBtn, flex: isMobile ? 1 : 'unset'}} onClick={() => setEditing(v=>!v)}>
+                <button style={{...s.bottomBtn, flex: isMobile ? 1 : 'unset', opacity: !isOwner ? 0.5 : 1}} onClick={() => isOwner && setEditing(v=>!v)}>
                   {editing ? 'Close Editor' : 'Edit Event'}
                 </button>
                 <button style={{...s.bottomBtn, flex: isMobile ? 1 : 'unset'}}>Change Photo</button>
@@ -599,7 +610,7 @@ export default function EventOverviewPage({ user = null }) {
                   </span>
                 </div>
                 <div style={{...s.visActions, flexDirection: isSmallMobile ? 'column' : 'row'}}>
-                  <Btn onClick={handleToggleVisibility} disabled={savingVis} style={{width: isSmallMobile ? '100%' : 'auto'}}>
+                  <Btn onClick={handleToggleVisibility} disabled={savingVis || !isOwner} style={{width: isSmallMobile ? '100%' : 'auto'}}>
                     {savingVis ? 'Updating…' : event.isPublic ? 'Change Visibility' : 'Make Public'}
                   </Btn>
                   <Btn ghost style={{width: isSmallMobile ? '100%' : 'auto'}}>Transfer Calendar</Btn>
@@ -659,7 +670,7 @@ export default function EventOverviewPage({ user = null }) {
                     ? 'Anyone with the link can discover this event.'
                     : 'Only invited guests can see this event.'}
                 </div>
-                <button style={s.sideVisBtn} onClick={handleToggleVisibility} disabled={savingVis}>
+                <button style={{...s.sideVisBtn, opacity: !isOwner ? 0.5 : 1}} onClick={handleToggleVisibility} disabled={savingVis || !isOwner}>
                   {savingVis ? 'Updating…' : event.isPublic ? 'Make Private' : 'Make Public'}
                 </button>
               </div>

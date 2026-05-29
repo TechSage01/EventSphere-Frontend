@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { getApiBaseUrl } from '../services/api.js'
+import { getPaystackPublicKey } from '../services/paystack.js'
 
 /* ══════════════════════════════════════
    HELPERS
@@ -102,9 +103,10 @@ async function verifyVotePayment(ctx, response) {
 ══════════════════════════════════════ */
 export default function VotingPage() {
   const { eventId, awardId, nomineeSlug } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate    = useNavigate()
   const API_BASE    = getApiBaseUrl()
-  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+  const paystackKey = getPaystackPublicKey()
 
   const [event,      setEvent]      = useState(null)
   const [awards,     setAwards]     = useState([])
@@ -112,6 +114,7 @@ export default function VotingPage() {
   const [error,      setError]      = useState('')
   const [voteMsg,    setVoteMsg]    = useState('')
   const [votingId,   setVotingId]   = useState('')
+  const [verifyingVote, setVerifyingVote] = useState(false)
   const [quantity,   setQuantity]   = useState(MIN_VOTE_QTY)
   const [selected,   setSelected]   = useState('')
   const [form,       setForm]       = useState({name:'',email:''})
@@ -131,15 +134,6 @@ export default function VotingPage() {
     const derived=deriveNameFromEmail(form.email)
     setForm(prev=>prev.name&&prev.name!==deriveNameFromEmail(prev.email)?prev:{...prev,name:derived})
   },[form.email])
-
-  /* load Paystack */
-  useEffect(()=>{
-    if (window.PaystackPop) return
-    const s=document.createElement('script')
-    s.src='https://js.paystack.co/v1/inline.js'; s.async=true
-    document.body.appendChild(s)
-    return ()=>{ try{document.body.removeChild(s)}catch{} }
-  },[])
 
   /* load data */
   useEffect(()=>{
@@ -184,6 +178,8 @@ export default function VotingPage() {
     ? heroAward.contestants
     : (Array.isArray(heroAward?.nominees)?heroAward.nominees:[])
   const activeKey    = heroAward?.id||awardId||eventId
+  const voteReference = searchParams.get('reference')
+  const awardIdFromQuery = searchParams.get('awardId') || awardId
 
   /* resolve selected nominee from URL slug or first */
   const defaultNominee = heroNominees[0]
@@ -202,15 +198,39 @@ export default function VotingPage() {
   const totalVotes = countAwardVotes(heroAward)
   const selectedVotes = countNomineeVotes(heroAward, nomDetails?.name || currentNominee)
 
+  useEffect(() => {
+    if (!voteReference || verifyingVote) return
+    if (!eventId || !awardIdFromQuery) return
+
+    const nominee = nomDetails?.name || currentNominee
+    setVoteMsg('Verifying payment with Paystack...')
+    setVerifyingVote(true)
+
+    verifyVotePayment({
+      apiBase: API_BASE,
+      eventId,
+      awardId: awardIdFromQuery,
+      voteReference,
+      quantity,
+      name: form.name,
+      email: form.email,
+      nominee,
+      setAwards,
+      setVoteMsg,
+      navigate,
+      backUrl: `/public/events/${eventId}/voting/${awardIdFromQuery}`,
+    }).finally(() => {
+      setVerifyingVote(false)
+    })
+  }, [API_BASE, awardIdFromQuery, currentNominee, eventId, form.email, form.name, navigate, nomDetails, quantity, verifyingVote, voteReference])
+
   async function handleVote() {
     setVoteMsg(''); setError('')
     if (!form.email)     { setVoteMsg('Please enter your email first.'); return }
     if (!currentNominee) { setVoteMsg('Please select a nominee.'); return }
 
     if (quantity < MIN_VOTE_QTY) { setVoteMsg('Minimum vote is 2'); return }
-    if (!paystackKey)    { console.error('Paystack public key is missing in environment variables'); setVoteMsg('Payment key is missing.'); return }
-    if (!window.PaystackPop) { setVoteMsg('Payment system loading, please try again.'); return }
-
+    if (!paystackKey)    { console.error('Paystack public key is missing in environment variables'); setVoteMsg('Payment system not configured. Please contact support.'); return }
     setVotingId(activeKey)
     try {
       // 1. Make an API request to your backend to initialize the payment session

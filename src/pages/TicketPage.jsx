@@ -108,6 +108,7 @@ export default function TicketPage() {
   if (!ticket) return <Shell message="Ticket not found" actionLabel="Back to Events" onAction={() => navigate('/events')} />
 
   const ticketUrl = `${window.location.origin}/tickets/${ticket.ticketId}`
+  const qrPayload = ticket.qrCodeText || ticketUrl
   const isCompact = viewportWidth < 860
   const isNarrow = viewportWidth < 560
   const qrSize = viewportWidth < 420 ? 180 : viewportWidth < 560 ? 200 : 220
@@ -129,7 +130,7 @@ export default function TicketPage() {
           <div style={isCompact ? styles.bodyGridStacked : styles.bodyGrid}>
             <div style={styles.qrPanel}>
               <div style={styles.qrFrame}>
-                <QRCodeSVG value={ticketUrl} size={qrSize} bgColor="#ffffff" fgColor="#0b0b10" includeMargin />
+                <QRCodeSVG value={qrPayload} size={qrSize} bgColor="#ffffff" fgColor="#0b0b10" includeMargin />
               </div>
               <div style={styles.ticketId}>{ticket.ticketId}</div>
               {showQrActions && (
