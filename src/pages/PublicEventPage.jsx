@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getApiBaseUrl } from '../services/api.js'
+import { getPaystackKey } from '../config/paystack.js'
 
 const themeMap = {
   minimal: { bg: ['#10262b', '#081722'], accent: '#5eead4' },
@@ -22,6 +23,7 @@ export default function PublicEventPage() {
   const { eventId } = useParams()
   const navigate = useNavigate()
   const API_BASE = getApiBaseUrl()
+  const paystackKey = getPaystackKey()
   const [event, setEvent] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -62,11 +64,45 @@ export default function PublicEventPage() {
     loadEvent()
   }, [eventId])
 
+  const ticketBaseAmount = parseTicketAmount(event?.ticketPrice)
+  const vipBaseAmount = (event?.ticketPrices && typeof event.ticketPrices.vip === 'number')
+    ? Math.round(event.ticketPrices.vip)
+    : 0
+  const tableBaseAmount = (event?.ticketPrices && typeof event.ticketPrices.table === 'number')
+    ? Math.round(event.ticketPrices.table)
+    : 0
+  const ticketFeeAmount = calculateTicketFee(ticketBaseAmount)
+  const ticketTotalAmount = ticketBaseAmount + ticketFeeAmount
+  const vipFeeAmount = calculateTicketFee(vipBaseAmount)
+  const vipTotalAmount = vipBaseAmount + vipFeeAmount
+  const tableFeeAmount = calculateTicketFee(tableBaseAmount)
+  const tableTotalAmount = tableBaseAmount + tableFeeAmount
+
   async function handleSubmit(e) {
     e.preventDefault()
     setSubmitting(true)
     setSuccess('')
     setError('')
+
+    const baseAmount = selectedTicketType === 'vip'
+      ? vipBaseAmount
+      : selectedTicketType === 'table'
+        ? tableBaseAmount
+        : ticketBaseAmount
+    const feeAmount = selectedTicketType === 'vip'
+      ? vipFeeAmount
+      : selectedTicketType === 'table'
+        ? tableFeeAmount
+        : ticketFeeAmount
+    const donationValue = Number(donation || 0)
+    const totalDue = baseAmount + feeAmount + donationValue
+
+    if (totalDue > 0 && !paystackKey) {
+      console.error('Paystack public key missing. Check environment configuration.')
+      setError('Paystack is not configured properly')
+      setSubmitting(false)
+      return
+    }
 
     try {
       const res = await fetch(`${API_BASE}/tickets/events/${eventId}/register`, {
@@ -102,20 +138,6 @@ export default function PublicEventPage() {
   if (!event) return <Shell message="Event not found" actionLabel="Back to Events" onAction={() => navigate('/events')} />
 
   const theme = themeMap[event.theme] || themeMap.minimal
-  const ticketBaseAmount = parseTicketAmount(event.ticketPrice)
-  // prefer per-type price if available; otherwise mark as unavailable (0)
-  const vipBaseAmount = (event?.ticketPrices && typeof event.ticketPrices.vip === 'number')
-    ? Math.round(event.ticketPrices.vip)
-    : 0
-  const tableBaseAmount = (event?.ticketPrices && typeof event.ticketPrices.table === 'number')
-    ? Math.round(event.ticketPrices.table)
-    : 0
-  const ticketFeeAmount = calculateTicketFee(ticketBaseAmount)
-  const ticketTotalAmount = ticketBaseAmount + ticketFeeAmount
-  const vipFeeAmount = calculateTicketFee(vipBaseAmount)
-  const vipTotalAmount = vipBaseAmount + vipFeeAmount
-  const tableFeeAmount = calculateTicketFee(tableBaseAmount)
-  const tableTotalAmount = tableBaseAmount + tableFeeAmount
 
   return (
     <div style={{ ...styles.page, background: `linear-gradient(180deg, ${theme.bg[0]} 0%, #0d0e12 60%, #07080a 100%)` }}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { getApiBaseUrl } from '../services/api.js'
-import { getPaystackPublicKey } from '../services/paystack.js'
+import { getPaystackKey } from '../config/paystack.js'
 
 /* ══════════════════════════════════════
    HELPERS
@@ -106,7 +106,7 @@ export default function VotingPage() {
   const [searchParams] = useSearchParams()
   const navigate    = useNavigate()
   const API_BASE    = getApiBaseUrl()
-  const paystackKey = getPaystackPublicKey()
+  const paystackKey = getPaystackKey()
 
   const [event,      setEvent]      = useState(null)
   const [awards,     setAwards]     = useState([])
@@ -230,7 +230,7 @@ export default function VotingPage() {
     if (!currentNominee) { setVoteMsg('Please select a nominee.'); return }
 
     if (quantity < MIN_VOTE_QTY) { setVoteMsg('Minimum vote is 2'); return }
-    if (!paystackKey)    { console.error('Paystack public key is missing in environment variables'); setVoteMsg('Payment system not configured. Please contact support.'); return }
+    if (!paystackKey)    { console.error('Paystack public key missing. Check environment configuration.'); setVoteMsg('Paystack is not configured properly'); return }
     setVotingId(activeKey)
     try {
       // 1. Make an API request to your backend to initialize the payment session
