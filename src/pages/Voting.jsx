@@ -145,7 +145,8 @@ async function verifyVotePayment(ctx, response) {
           : a,
       ),
     );
-    navigate(`/payment-success?type=vote`, { replace: true });
+    const ref = encodeURIComponent(response.reference || voteReference || '')
+    navigate(`/payment-success?type=vote&reference=${ref}&eventId=${eventId}&awardId=${awardId}`, { replace: true });
   } catch (err) {
     setVoteMsg(err.message);
   }
@@ -394,7 +395,7 @@ export default function VotingPage() {
         publicKey: paystackKey,
         callback_url: 'https://eventsnest.xyz/payment-success?type=vote',
         metadata: {
-          type: 'voting',
+          type: 'vote',
           nomineeId: nomineeIdValue,
           numberOfVotes: quantity,
         },
