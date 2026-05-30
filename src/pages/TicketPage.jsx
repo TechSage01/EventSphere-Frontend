@@ -66,7 +66,7 @@ export default function TicketPage() {
         setEvent(payload.data?.event)
         const ticketPageUrl = `/tickets/${payload.data?.ticket?.ticketId}`
         navigate(
-          `/thank-you?type=ticket&back=${encodeURIComponent(`/public/events/${payload.data?.ticket?.eventId}`)}&ticketUrl=${encodeURIComponent(ticketPageUrl)}&title=${encodeURIComponent('Thank you for your payment')}&subtitle=${encodeURIComponent('Your ticket is confirmed. You can reserve another one for a friend next.')}`,
+          `/ticket-success?back=${encodeURIComponent(`/public/events/${payload.data?.ticket?.eventId}`)}&ticketUrl=${encodeURIComponent(ticketPageUrl)}&title=${encodeURIComponent('Thank you for your payment')}&subtitle=${encodeURIComponent('Your ticket is confirmed. You can reserve another one for a friend next.')}`,
           { replace: true }
         )
       } catch (err) {

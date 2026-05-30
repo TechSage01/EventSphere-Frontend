@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getApiBaseUrl } from '../services/api.js'
 import { getPaystackKey } from '../config/paystack.js'
+import { PAYSTACK_CALLBACK_URL } from '../services/paystack.js'
 
 const themeMap = {
   minimal: { bg: ['#10262b', '#081722'], accent: '#5eead4' },
@@ -102,7 +103,7 @@ export default function PublicEventPage() {
       email: form.email,
       amount: amountInKobo,
       publicKey: paystackKey,
-      callback_url: `https://eventsnest.xyz/payment-success?type=ticket&reference={REFERENCE}`,
+      callback_url: PAYSTACK_CALLBACK_URL,
       metadata: {
         type: 'ticket',
         eventId: eventId,

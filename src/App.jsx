@@ -46,6 +46,8 @@ export default function App() {
       
       {/* Other Routes */}
       <Route path="/thank-you" element={<ThankYouPage />} />
+      <Route path="/ticket-success" element={<ThankYouPage />} />
+      <Route path="/voting-success" element={<ThankYouPage />} />
       <Route path="/payment-success" element={<PaymentSuccessPage />} />
       <Route path="/tickets/:ticketId" element={<TicketPage />} />
       <Route path="/events/:eventId/scan" element={user ? <ScannerPage user={user} /> : <Navigate to="/signup" replace />} />

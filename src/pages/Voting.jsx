@@ -146,7 +146,7 @@ async function verifyVotePayment(ctx, response) {
       ),
     );
     const ref = encodeURIComponent(response.reference || voteReference || '')
-    navigate(`/payment-success?type=vote&reference=${ref}&eventId=${eventId}&awardId=${awardId}`, { replace: true });
+    navigate(`/voting-success?reference=${ref}&eventId=${eventId}&awardId=${awardId}`, { replace: true });
   } catch (err) {
     setVoteMsg(err.message);
   }
@@ -221,39 +221,12 @@ export default function VotingPage() {
             : [];
         const baseAwards = rawAwards.map((a) => ({
           ...a,
-          contestants: Array.isArray(a.contestants)
-            ? a.contestants
-            : Array.isArray(a.nominees)
-              ? a.nominees
-              : [],
+          contestants: Array.isArray(a.contestants) ? a.contestants : [],
         }));
         if (cancelled) return;
         setEvent(loadedEvent);
         setAwards(baseAwards);
         setLoading(false);
-        void Promise.all(
-          baseAwards.map(async (a) => {
-            try {
-              const cRes = await fetch(
-                `${API_BASE}/awards/events/${eventId}/${a.id}/contestants`,
-              );
-              const cData = await cRes.json();
-              if (!cRes.ok) return a;
-              return {
-                ...a,
-                contestants: Array.isArray(cData.data?.contestants)
-                  ? cData.data.contestants
-                  : Array.isArray(cData.contestants)
-                    ? cData.contestants
-                    : [],
-              };
-            } catch {
-              return a;
-            }
-          }),
-        ).then((updated) => {
-          if (!cancelled && updated.length) setAwards(updated);
-        });
       } catch (err) {
         if (!cancelled) {
           setError(err.message);
@@ -266,6 +239,44 @@ export default function VotingPage() {
       cancelled = true;
     };
   }, [eventId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadContestants() {
+      const activeAwardId = heroAward?.id || awardId;
+      const awardToLoad = awards.find((a) => a.id === activeAwardId) || heroAward;
+      if (!awardToLoad?.id || !eventId) return;
+
+      try {
+        const cRes = await fetch(
+          `${API_BASE}/awards/events/${eventId}/${awardToLoad.id}/contestants`,
+        );
+        const cData = await cRes.json();
+        if (!cRes.ok) return;
+
+        const contestants = Array.isArray(cData.data?.contestants)
+          ? cData.data.contestants
+          : Array.isArray(cData.contestants)
+            ? cData.contestants
+            : [];
+
+        if (cancelled) return;
+        setAwards((prev) =>
+          prev.map((award) =>
+            award.id === awardToLoad.id ? { ...award, contestants } : award,
+          ),
+        );
+      } catch {
+        // best-effort only
+      }
+    }
+
+    loadContestants();
+    return () => {
+      cancelled = true;
+    };
+  }, [API_BASE, awardId, eventId, heroAward?.id]);
 
   /* derive active award + nominee */
   const heroAward = awards.find((a) => a.id === awardId) || awards[0] || null;
@@ -389,18 +400,6 @@ export default function VotingPage() {
           currentNominee ||
           "",
       );
-      const paystackConfig = {
-        email: form.email,
-        amount: totalAmountInKobo,
-        publicKey: paystackKey,
-        callback_url: 'https://eventsnest.xyz/payment-success?type=vote',
-        metadata: {
-          type: 'vote',
-          nomineeId: nomineeIdValue,
-          numberOfVotes: quantity,
-        },
-      }
-
       // 1. Make an API request to your backend to initialize the payment session
       const res = await fetch(
         `${API_BASE}/awards/events/${eventId}/${activeKey}/vote/initialize`,
@@ -412,7 +411,11 @@ export default function VotingPage() {
             name: form.name,
             email: form.email,
             nominee: currentNominee,
-            metadata: paystackConfig.metadata,
+            metadata: {
+              type: 'vote',
+              nomineeId: nomineeIdValue,
+              numberOfVotes: quantity,
+            },
             quantity: quantity,
           }),
         },
@@ -426,12 +429,12 @@ export default function VotingPage() {
         );
       }
 
-      // 2. Extract the safe authorization URL provided by Paystack from your backend
-      if (data.data?.authUrl) {
+      const authorizationUrl = data.data?.authorization_url || data.data?.authUrl;
+
+      if (authorizationUrl) {
         setVoteMsg("Redirecting to secure Paystack window...");
 
-        // 3. This physically routes the tab to checkout.paystack.com
-        window.location.href = data.data.authUrl;
+        window.location.href = authorizationUrl;
       } else {
         throw new Error("No checkout URL returned from server configurations.");
       }

@@ -9,7 +9,7 @@ export default function PaymentSuccessPage() {
   const [error, setError] = useState('')
   const [details, setDetails] = useState(null)
 
-  const reference = searchParams.get('reference') || ''
+  const reference = searchParams.get('reference') || searchParams.get('trxref') || searchParams.get('trxRef') || ''
   const queryType = String(searchParams.get('type') || '').toLowerCase()
 
   useEffect(() => {
@@ -30,7 +30,12 @@ export default function PaymentSuccessPage() {
           body: JSON.stringify({ reference }),
         })
         if (!active) return
-        setDetails(payload.data || null)
+        const resolvedDetails = payload.data || null
+        setDetails(resolvedDetails)
+
+        const resolvedType = String(resolvedDetails?.type || queryType || 'ticket').toLowerCase()
+        const targetPath = resolvedType === 'vote' ? '/voting-success' : '/ticket-success'
+        navigate(`${targetPath}?reference=${encodeURIComponent(reference)}`, { replace: true })
       } catch (err) {
         if (!active) return
         setError(err.message || 'Unable to verify payment')
@@ -44,7 +49,7 @@ export default function PaymentSuccessPage() {
     return () => {
       active = false
     }
-  }, [reference])
+  }, [navigate, queryType, reference])
 
   const resolvedType = String(details?.type || queryType || 'ticket').toLowerCase()
   const isVote = resolvedType === 'vote'

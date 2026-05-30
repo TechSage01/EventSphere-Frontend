@@ -1,11 +1,13 @@
 import { useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 export default function ThankYouPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const location = useLocation()
 
-  const kind = searchParams.get('type') || 'ticket'
+  const pathname = String(location.pathname || '').toLowerCase()
+  const kind = searchParams.get('type') || (pathname.includes('vote') ? 'vote' : 'ticket')
   const backUrl = searchParams.get('back') || '/events'
   const ticketUrl = searchParams.get('ticketUrl') || ''
   const title = searchParams.get('title') || (kind === 'vote' ? 'Thank you for voting' : 'Thank you for your payment')
