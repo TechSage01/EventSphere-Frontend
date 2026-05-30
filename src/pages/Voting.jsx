@@ -75,49 +75,6 @@ function extractNomineeImageUrl(v) {
     return String(img.url || img.src || img.path || img.value || "").trim();
   return "";
 }
-function getAwardVoteTotal(award) {
-  const fromRows = Array.isArray(award?.votes)
-    ? award.votes.reduce(
-        (total, vote) => total + Number(vote?.quantity || 1),
-        0,
-      )
-    : 0;
-
-  return (
-    fromRows ||
-    Number(award?.totalVotes ?? award?.votesCount ?? award?.voteCount ?? 0)
-  );
-}
-
-function getNomineeVoteTotal(nominees, nomineeName) {
-  const targetName =
-    formatDisplay(nomineeName).toLowerCase() ||
-    String(nomineeName || "").trim().toLowerCase();
-  const targetSlug = slugify(nomineeName);
-
-  if (!Array.isArray(nominees) || !targetName) return 0;
-
-  const match = nominees.find((nominee) => {
-    const nomineeNameValue = extractNomineeName(nominee);
-    const normalizedName =
-      formatDisplay(nomineeNameValue).toLowerCase() ||
-      String(nomineeNameValue || "").trim().toLowerCase();
-    const normalizedSlug = slugify(
-      nominee?.slug || nomineeNameValue || nomineeName
-    );
-
-    return normalizedName === targetName || normalizedSlug === targetSlug;
-  });
-
-  // Supports both direct field and nested API shapes.
-  return Number(
-    match?.voteCount ??
-      match?.votesCount ??
-      match?.totalVotes ??
-      match?.stats?.voteCount ??
-      0
-  );
-}
 function resolveNomineeDetails(award, input) {
   if (!award) return null;
   const target = String(input || "")
@@ -157,7 +114,6 @@ async function verifyVotePayment(ctx, response) {
     setAwards,
     setVoteMsg,
     navigate,
-    backUrl,
   } = ctx;
   try {
     const res = await fetch(
@@ -189,10 +145,7 @@ async function verifyVotePayment(ctx, response) {
           : a,
       ),
     );
-    navigate(
-      `/thank-you?type=vote&back=${encodeURIComponent(backUrl)}&title=${encodeURIComponent("Thank you for voting!")}&subtitle=${encodeURIComponent("Your vote has been recorded. You can vote again for a friend next.")}`,
-      { replace: true },
-    );
+    navigate(`/payment-success?type=vote`, { replace: true });
   } catch (err) {
     setVoteMsg(err.message);
   }
@@ -344,11 +297,6 @@ export default function VotingPage() {
   const subtotal = quantity * 50;
   const fee = estimateFee(subtotal);
   const total = subtotal + fee;
-  const totalVotes = getAwardVoteTotal(heroAward);
-  const selectedVotes = getNomineeVoteTotal(
-    heroNominees,
-    nomDetails?.name || currentNominee,
-  );
 
   useEffect(() => {
     if (!voteReference || verifyingVote) return;
@@ -370,7 +318,6 @@ export default function VotingPage() {
       setAwards,
       setVoteMsg,
       navigate,
-      backUrl: `/public/events/${eventId}/voting/${awardIdFromQuery}`,
     }).finally(() => {
       setVerifyingVote(false);
     });
@@ -414,6 +361,33 @@ export default function VotingPage() {
     setVotingId(activeKey);
     try {
       const totalAmountInKobo = Math.round(total * 100)
+      const normalizedNomineeName =
+        formatDisplay(currentNominee).toLowerCase() ||
+        String(currentNominee || "").trim().toLowerCase();
+      const normalizedNomineeSlug = slugify(currentNominee);
+      const resolvedNominee = heroNominees.find((nominee) => {
+        const nomineeNameValue = extractNomineeName(nominee);
+        const normalizedName =
+          formatDisplay(nomineeNameValue).toLowerCase() ||
+          String(nomineeNameValue || "").trim().toLowerCase();
+        const normalizedSlug = slugify(
+          nominee?.slug || nomineeNameValue || nominee
+        );
+        return (
+          normalizedName === normalizedNomineeName ||
+          normalizedSlug === normalizedNomineeSlug
+        );
+      });
+      const nomineeIdValue = String(
+        resolvedNominee?.id ||
+          resolvedNominee?._id ||
+          resolvedNominee?.nomineeId ||
+          resolvedNominee?.contestantId ||
+          resolvedNominee?.uuid ||
+          nomDetails?.slug ||
+          currentNominee ||
+          "",
+      );
       const paystackConfig = {
         email: form.email,
         amount: totalAmountInKobo,
@@ -421,7 +395,7 @@ export default function VotingPage() {
         callback_url: 'https://eventsnest.xyz/payment-success?type=vote',
         metadata: {
           type: 'voting',
-          nomineeId: selectedNomineeId,
+          nomineeId: nomineeIdValue,
           numberOfVotes: quantity,
         },
       }
@@ -433,9 +407,11 @@ export default function VotingPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            amount: totalAmountInKobo,
             name: form.name,
             email: form.email,
             nominee: currentNominee,
+            metadata: paystackConfig.metadata,
             quantity: quantity,
           }),
         },
@@ -550,33 +526,9 @@ export default function VotingPage() {
                 </span>
               </div>
             )}
-            {/* overlay: name + vote count badge */}
+            {/* overlay: name */}
             <div style={S.nomineePhotoOverlay}>
               <div style={S.nomineeNameOverlay}>{nomName}</div>
-              <div style={S.nomineeVoteBadge}>
-                <span
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 900,
-                    color: "#c4b5fd",
-                    letterSpacing: "-1px",
-                    lineHeight: 1,
-                  }}
-                >
-                  {totalVotes}
-                </span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: "#9ca3af",
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: ".5px",
-                  }}
-                >
-                  Total Votes
-                </span>
-              </div>
             </div>
           </div>
 
@@ -831,7 +783,6 @@ export default function VotingPage() {
               </div>
 
               <BRow label="Contestant" value={nomName || "—"} />
-              <BRow label="Contestant Votes" value={String(selectedVotes)} />
               <BRow label="Category" value={heroAward?.title || "—"} />
               <BRow label="Price per Vote" value={formatMoney(50)} />
               <BRow label="Number of Votes" value={String(quantity)} />
