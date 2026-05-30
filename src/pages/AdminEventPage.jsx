@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getApiBaseUrl } from '../services/api.js'
 import { listAwards, deleteAward as apiDeleteAward } from '../services/awards.js'
+import AdminLeaderboard from '../components/AdminLeaderboard.jsx'
 
 /* ─── helpers ─── */
 function slugify(v) {
@@ -326,6 +327,13 @@ export default function AdminEventPage({ user=null }) {
 
         {/* ─── MAIN GRID ─── */}
         <div style={A.grid}>
+
+          {canManageEvent && (
+            <div style={A.panel}>
+              <div style={A.panelHead}><span style={A.panelIcon}>📈</span> Leaderboard</div>
+              <AdminLeaderboard eventId={eventId} />
+            </div>
+          )}
 
           {/* CREATE AWARD */}
           <div style={A.panel}>

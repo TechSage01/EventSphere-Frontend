@@ -41,23 +41,9 @@ function extractNomineeImageUrl(v) {
   if (img&&typeof img==='object') return String(img.url||img.src||img.path||img.value||'').trim()
   return ''
 }
-function getAwardVotes(award) {
-  return Array.isArray(award?.votes) ? award.votes : []
-}
-function countAwardVotes(award) {
-  const votes = getAwardVotes(award)
-  const fromRows = votes.reduce((total, vote) => total + Number(vote?.quantity || 1), 0)
-  return fromRows || Number(award?.voteCount || 0)
-}
-function countNomineeVotes(award, nomineeName) {
-  const votes = getAwardVotes(award)
-  const target = formatDisplay(nomineeName).toLowerCase() || String(nomineeName||'').trim().toLowerCase()
-  const fromRows = votes.reduce((total, vote) => {
-    const value = vote?.nominee || vote?.nomineeName || vote?.candidate || vote?.choice || ''
-    const voteName = formatDisplay(value).toLowerCase() || String(value||'').trim().toLowerCase()
-    return voteName === target ? total + Number(vote?.quantity || 1) : total
-  }, 0)
-  return fromRows
+function extractNomineeId(v) {
+  if (!v||typeof v!=='object') return ''
+  return String(v.id||v._id||v.nomineeId||v.contestantId||'').trim()
 }
 function resolveNomineeDetails(award, input) {
   if (!award) return null
@@ -74,6 +60,7 @@ function resolveNomineeDetails(award, input) {
     name:extractNomineeName(match)||match.name||'',
     imageUrl:extractNomineeImageUrl(match),
     slug:match.slug||slugify(extractNomineeName(match)||match.name||''),
+    id:extractNomineeId(match),
   }
 }
 
@@ -190,14 +177,15 @@ export default function VotingPage() {
     || (heroNominees[0] && typeof heroNominees[0]==='object'
         ? {name:extractNomineeName(heroNominees[0]),imageUrl:extractNomineeImageUrl(heroNominees[0]),slug:''}
         : null)
+  const selectedNomineeId = nomDetails?.id || extractNomineeId(heroNominees.find(n=>{
+    const name = typeof n==='string' ? n : (extractNomineeName(n)||n?.name||'')
+    return formatDisplay(name) === formatDisplay(currentNominee)
+  }))
 
   /* payment calc */
   const subtotal = quantity * 50
   const fee      = estimateFee(subtotal)
   const total    = subtotal + fee
-  const totalVotes = countAwardVotes(heroAward)
-  const selectedVotes = countNomineeVotes(heroAward, nomDetails?.name || currentNominee)
-
   useEffect(() => {
     if (!voteReference || verifyingVote) return
     if (!eventId || !awardIdFromQuery) return
@@ -229,10 +217,25 @@ export default function VotingPage() {
     if (!form.email)     { setVoteMsg('Please enter your email first.'); return }
     if (!currentNominee) { setVoteMsg('Please select a nominee.'); return }
 
+    if (!selectedNomineeId) { setVoteMsg('Nominee data is still loading. Please try again in a moment.'); return }
+
     if (quantity < MIN_VOTE_QTY) { setVoteMsg('Minimum vote is 2'); return }
     if (!paystackKey)    { console.error('Paystack public key missing. Check environment configuration.'); setVoteMsg('Paystack is not configured properly'); return }
     setVotingId(activeKey)
     try {
+      const totalAmountInKobo = Math.round(total * 100)
+      const paystackConfig = {
+        email: form.email,
+        amount: totalAmountInKobo,
+        publicKey: paystackKey,
+        callback_url: 'https://eventsnest.xyz/payment-success?type=vote',
+        metadata: {
+          type: 'voting',
+          nomineeId: selectedNomineeId,
+          numberOfVotes: quantity,
+        },
+      }
+
       // 1. Make an API request to your backend to initialize the payment session
       const res = await fetch(`${API_BASE}/awards/events/${eventId}/${activeKey}/vote/initialize`, {
         method: 'POST',
@@ -241,7 +244,9 @@ export default function VotingPage() {
           name: form.name,
           email: form.email,
           nominee: currentNominee,
-          quantity: quantity
+          quantity: quantity,
+          metadata: paystackConfig.metadata,
+          paystackConfig,
         })
       })
 
@@ -319,10 +324,6 @@ export default function VotingPage() {
               <span style={S.statPillIcon}>₦</span>
               <span>₦50 per vote</span>
             </div>
-            <div style={S.statPill}>
-              <span style={S.statPillIcon}>🗳</span>
-              <span>{totalVotes.toLocaleString()} votes</span>
-            </div>
           </div>
 
           {/* ── NOMINEE PHOTO + RANK ── */}
@@ -338,10 +339,6 @@ export default function VotingPage() {
             {/* overlay: name + vote count badge */}
             <div style={S.nomineePhotoOverlay}>
               <div style={S.nomineeNameOverlay}>{nomName}</div>
-              <div style={S.nomineeVoteBadge}>
-                <span style={{fontSize:22,fontWeight:900,color:'#c4b5fd',letterSpacing:'-1px',lineHeight:1}}>{totalVotes}</span>
-                <span style={{fontSize:11,color:'#9ca3af',fontWeight:600,textTransform:'uppercase',letterSpacing:'.5px'}}>Total Votes</span>
-              </div>
             </div>
           </div>
 
@@ -485,7 +482,6 @@ export default function VotingPage() {
               </div>
 
               <BRow label="Contestant"     value={nomName||'—'}/>
-              <BRow label="Contestant Votes" value={String(selectedVotes)}/>
               <BRow label="Category"       value={heroAward?.title||'—'}/>
               <BRow label="Price per Vote" value={formatMoney(50)}/>
               <BRow label="Number of Votes" value={String(quantity)}/>
@@ -664,14 +660,6 @@ const S = {
     fontSize:'clamp(18px,2.5vw,26px)',fontWeight:900,color:'#fff',
     letterSpacing:'-.5px',lineHeight:1.1,
     textShadow:'0 2px 12px rgba(0,0,0,0.8)',
-  },
-  nomineeVoteBadge: {
-    alignSelf:'flex-start',
-    background:'rgba(12,12,16,0.7)',
-    border:'1px solid rgba(167,139,250,0.3)',
-    borderRadius:12,padding:'10px 16px',
-    display:'flex',flexDirection:'column',gap:2,
-    backdropFilter:'blur(10px)',
   },
 
   /* other nominees */

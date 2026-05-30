@@ -96,6 +96,19 @@ export default function PublicEventPage() {
         : ticketFeeAmount
     const donationValue = Number(donation || 0)
     const totalDue = baseAmount + feeAmount + donationValue
+    const amountInKobo = Math.round(totalDue * 100)
+    const ticketQuantity = 1
+    const ticketPayload = {
+      email: form.email,
+      amount: amountInKobo,
+      publicKey: paystackKey,
+      callback_url: `https://eventsnest.xyz/payment-success?type=ticket&reference={REFERENCE}`,
+      metadata: {
+        type: 'ticket',
+        eventId: eventId,
+        quantity: ticketQuantity,
+      },
+    }
 
     if (totalDue > 0 && !paystackKey) {
       console.error('Paystack public key missing. Check environment configuration.')
@@ -108,7 +121,13 @@ export default function PublicEventPage() {
       const res = await fetch(`${API_BASE}/tickets/events/${eventId}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, ticketType: selectedTicketType, donation: Number(donation || 0) }),
+        body: JSON.stringify({
+          ...form,
+          ticketType: selectedTicketType,
+          donation: Number(donation || 0),
+          paystackConfig: ticketPayload,
+          metadata: ticketPayload.metadata,
+        }),
       })
       const payload = await res.json()
       if (!res.ok) throw new Error(payload.message || 'Failed to reserve ticket')
