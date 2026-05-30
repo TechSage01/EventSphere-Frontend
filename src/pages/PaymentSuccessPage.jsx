@@ -1,16 +1,71 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { apiRequest } from '../services/api.js'
+
+const verifyRequests = new Map()
+
+function verifyReferenceOnce(reference) {
+  if (!verifyRequests.has(reference)) {
+    verifyRequests.set(
+      reference,
+      apiRequest('/payments/paystack/verify', {
+        method: 'POST',
+        body: JSON.stringify({ reference }),
+      }).catch(error => {
+        verifyRequests.delete(reference)
+        throw error
+      })
+    )
+  }
+
+  return verifyRequests.get(reference)
+}
+
+function buildSuccessPath(type, details, reference) {
+  if (type === 'vote') {
+    const eventId = details?.eventId || ''
+    const awardId = details?.awardId || ''
+    const params = new URLSearchParams({
+      type: 'vote',
+      reference,
+      title: 'Thank you for voting',
+      subtitle: 'Your vote has been recorded successfully. You can vote for a friend next.',
+      back: eventId ? `/public/events/${eventId}` : '/events',
+    })
+
+    if (eventId) params.set('eventId', eventId)
+    if (awardId) params.set('awardId', awardId)
+
+    return `/voting-success?${params.toString()}`
+  }
+
+  const ticketId = details?.ticket?.ticketId || ''
+  const eventId = details?.ticket?.eventId || details?.event?.id || details?.event?._id || ''
+  const params = new URLSearchParams({
+    type: 'ticket',
+    reference,
+    title: 'Thank you for your payment',
+    subtitle: 'Your ticket is confirmed. You can reserve another one for a friend next.',
+    back: eventId ? `/public/events/${eventId}` : '/events',
+  })
+
+  if (ticketId) {
+    params.set('ticketId', ticketId)
+    params.set('ticketUrl', `/tickets/${ticketId}`)
+  }
+
+  return `/ticket-success?${params.toString()}`
+}
 
 export default function PaymentSuccessPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const routedRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [details, setDetails] = useState(null)
 
   const reference = searchParams.get('reference') || searchParams.get('trxref') || searchParams.get('trxRef') || ''
-  const queryType = String(searchParams.get('type') || '').toLowerCase()
 
   useEffect(() => {
     let active = true
@@ -25,17 +80,21 @@ export default function PaymentSuccessPage() {
       setError('')
 
       try {
-        const payload = await apiRequest('/payments/paystack/verify', {
-          method: 'POST',
-          body: JSON.stringify({ reference }),
-        })
+        const payload = await verifyReferenceOnce(reference)
         if (!active) return
         const resolvedDetails = payload.data || null
+        const resolvedType = String(resolvedDetails?.type || '').toLowerCase()
+
+        if (resolvedType !== 'vote' && resolvedType !== 'ticket') {
+          throw new Error('Unable to determine payment type.')
+        }
+
         setDetails(resolvedDetails)
 
-        const resolvedType = String(resolvedDetails?.type || queryType || 'ticket').toLowerCase()
-        const targetPath = resolvedType === 'vote' ? '/voting-success' : '/ticket-success'
-        navigate(`${targetPath}?reference=${encodeURIComponent(reference)}`, { replace: true })
+        if (!routedRef.current) {
+          routedRef.current = true
+          navigate(buildSuccessPath(resolvedType, resolvedDetails, reference), { replace: true })
+        }
       } catch (err) {
         if (!active) return
         setError(err.message || 'Unable to verify payment')
@@ -49,9 +108,9 @@ export default function PaymentSuccessPage() {
     return () => {
       active = false
     }
-  }, [navigate, queryType, reference])
+  }, [navigate, reference])
 
-  const resolvedType = String(details?.type || queryType || 'ticket').toLowerCase()
+  const resolvedType = String(details?.type || '').toLowerCase()
   const isVote = resolvedType === 'vote'
   const eventId = details?.eventId || searchParams.get('eventId') || ''
   const ticketId = details?.ticket?.ticketId || searchParams.get('ticketId') || ''

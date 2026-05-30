@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getApiBaseUrl } from "../services/api.js";
-import { getPaystackKey } from "../config/paystack.js";
 
 /* ══════════════════════════════════════
    HELPERS
@@ -160,7 +159,7 @@ export default function VotingPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const API_BASE = getApiBaseUrl();
-  const paystackKey = getPaystackKey();
+  const redirectingRef = useRef(false);
 
   const [event, setEvent] = useState(null);
   const [awards, setAwards] = useState([]);
@@ -363,13 +362,6 @@ export default function VotingPage() {
       setVoteMsg("Minimum vote is 2");
       return;
     }
-    if (!paystackKey) {
-      console.error(
-        "Paystack public key missing. Check environment configuration.",
-      );
-      setVoteMsg("Paystack is not configured properly");
-      return;
-    }
     setVotingId(activeKey);
     try {
       const totalAmountInKobo = Math.round(total * 100)
@@ -429,19 +421,22 @@ export default function VotingPage() {
         );
       }
 
-      const authorizationUrl = data.data?.authorization_url || data.data?.authUrl;
+      const authorizationUrl = data.data?.authorization_url;
 
       if (authorizationUrl) {
         setVoteMsg("Redirecting to secure Paystack window...");
-
-        window.location.href = authorizationUrl;
+        redirectingRef.current = true;
+        window.location.assign(authorizationUrl);
+        return;
       } else {
         throw new Error("No checkout URL returned from server configurations.");
       }
     } catch (err) {
       setVoteMsg(err.message);
     } finally {
-      setVotingId("");
+      if (!redirectingRef.current) {
+        setVotingId("");
+      }
     }
   }
 

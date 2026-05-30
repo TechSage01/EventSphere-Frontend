@@ -133,6 +133,11 @@ export default function PublicEventPage() {
       const payload = await res.json()
       if (!res.ok) throw new Error(payload.message || 'Failed to reserve ticket')
 
+      if (payload.data?.authorization_url) {
+        window.location.href = payload.data.authorization_url
+        return
+      }
+
       if (!payload.data?.paymentRequired) {
         const ticketId = payload.data?.ticket?.ticketId
         const isDuplicate = String(payload.message || '').toLowerCase().includes('already exists')
@@ -140,12 +145,6 @@ export default function PublicEventPage() {
         navigate(`/tickets/${ticketId}?success=1${isDuplicate ? '&duplicate=1' : ''}`)
         return
       }
-
-      if (!payload.data?.redirect) {
-        throw new Error('Payment redirect is missing')
-      }
-
-      window.location.href = payload.data.redirect
     } catch (err) {
       setError(err.message)
     } finally {
