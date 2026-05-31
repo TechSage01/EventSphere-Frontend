@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { BrowserQRCodeReader } from '@zxing/browser'
+import BackButton from '../components/BackButton.jsx'
 import { apiRequest } from '../services/api.js'
 
 export default function ScannerPage() {
@@ -167,6 +168,7 @@ export default function ScannerPage() {
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
+        <BackButton fallback="/" />
         <header style={styles.header}>
           <div>
             <h2 style={styles.title}>Event Check-in</h2>
@@ -250,7 +252,7 @@ function getCameraErrorMessage(error) {
 const styles = {
   page: {
     minHeight: '100vh',
-    padding: '24px',
+    padding: 'clamp(14px, 3vw, 24px)',
     background: 'radial-gradient(circle at top, rgba(167,139,250,0.12), transparent 30%), #0b0b10',
     color: '#f3f4f6',
     fontFamily: "'DM Sans', system-ui, sans-serif",
@@ -287,7 +289,7 @@ const styles = {
   statsTitle: { fontSize: 18, fontWeight: 800, marginBottom: 12 },
   statsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))',
     gap: 12,
   },
   statCard: {
@@ -300,7 +302,7 @@ const styles = {
   },
   layout: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1.8fr) minmax(320px, 0.8fr)',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))',
     gap: 20,
     alignItems: 'start',
   },
@@ -313,7 +315,7 @@ const styles = {
   video: {
     width: '100%',
     aspectRatio: '16 / 10',
-    minHeight: 560,
+    minHeight: 'min(56vw, 560px)',
     borderRadius: 18,
     background: '#000',
     objectFit: 'cover',
@@ -372,6 +374,7 @@ const styles = {
   },
   manualInput: {
     width: '100%',
+    boxSizing: 'border-box',
     padding: '12px 14px',
     borderRadius: 12,
     border: '1px solid rgba(255,255,255,0.08)',

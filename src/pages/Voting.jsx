@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import BackButton from "../components/BackButton.jsx";
 import { getApiBaseUrl } from "../services/api.js";
 
 /* ══════════════════════════════════════
@@ -461,7 +462,10 @@ export default function VotingPage() {
     <div style={S.page}>
       {/* ── TOPBAR ── */}
       <header style={S.topbar}>
-        <span style={S.brandMark}>NEST✦</span>
+        <div style={S.topbarLeft}>
+          <BackButton fallback="/" />
+          <span style={S.brandMark}>NEST✦</span>
+        </div>
         <div style={S.secureTag}>
           <span style={S.secureDot} />
           <span style={{ fontSize: 13, fontWeight: 600, color: "#6b6b7a" }}>
@@ -998,11 +1002,12 @@ const S = {
 
   /* topbar */
   topbar: {
-    height: 56,
+    minHeight: 56,
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "0 24px",
+    gap: 12,
+    padding: "8px clamp(12px, 3vw, 24px)",
     background: "rgba(12,12,16,0.92)",
     backdropFilter: "blur(20px)",
     WebkitBackdropFilter: "blur(20px)",
@@ -1011,6 +1016,7 @@ const S = {
     top: 0,
     zIndex: 100,
   },
+  topbarLeft: { display: "flex", alignItems: "center", gap: 12, minWidth: 0 },
   brandMark: {
     fontFamily: "'Arial Black',sans-serif",
     fontWeight: 900,

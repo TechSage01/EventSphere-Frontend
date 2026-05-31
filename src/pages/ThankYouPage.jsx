@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import BackButton from '../components/BackButton.jsx'
 
 export default function ThankYouPage() {
   const [searchParams] = useSearchParams()
@@ -21,6 +22,7 @@ export default function ThankYouPage() {
   return (
     <div style={styles.page}>
       <main style={styles.main}>
+        <BackButton fallback="/" style={styles.backButton} />
         <section style={styles.card}>
           <div style={styles.badge}>{kind === 'vote' ? 'Vote Complete' : 'Ticket Complete'}</div>
           <h1 style={styles.title}>{title}</h1>
@@ -56,6 +58,7 @@ const styles = {
     padding: 24,
   },
   main: { width: '100%', maxWidth: 760 },
+  backButton: { marginBottom: 16 },
   card: {
     padding: '40px 28px',
     borderRadius: 28,

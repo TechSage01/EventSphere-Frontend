@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import BackButton from '../components/BackButton.jsx'
 import { apiRequest } from '../services/api.js'
 
 const verifyRequests = new Map()
@@ -140,6 +141,9 @@ export default function PaymentSuccessPage() {
   return (
     <div style={styles.page}>
       <main style={styles.card}>
+        <div style={styles.backRow}>
+          <BackButton fallback="/" />
+        </div>
         <div style={styles.iconWrap} aria-hidden="true">
           <span style={styles.icon}>✓</span>
         </div>
@@ -209,6 +213,7 @@ const styles = {
     boxShadow: '0 24px 80px rgba(0,0,0,0.35)',
     textAlign: 'center',
   },
+  backRow: { display: 'flex', justifyContent: 'flex-start', marginBottom: 18 },
   iconWrap: {
     width: 70,
     height: 70,
